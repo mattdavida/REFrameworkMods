@@ -1,0 +1,146 @@
+================================================================================
+  MH Wilds QOL
+================================================================================
+In-game QOL menu for Monster Hunter Wilds. Press ~ (tilde).
+
+Hunter cheats, health bars, play speed, and wallet adds.
+Cheats stay off unless you are solo (no other human hunters).
+Health bars are overlay only — they are not a cheat and work in a party. ( not tested )
+Docked right. Settings tab can rebind the toggle and redock the window.
+
+This zip is REFramework (dinput8.dll) plus the menu. Unzip into the
+game folder — next to the exe.
+
+If you already have REFramework, you just need to copy the single lua file to 
+<game-dir>/reframework/autorun
+
+
+--------------------------------------------------------------------------------
+  INSTALLATION
+--------------------------------------------------------------------------------
+
+Unzip into the Monster Hunter Wilds install folder (same place as
+MonsterHunterWilds.exe).
+
+In Steam: right-click Monster Hunter Wilds → Manage → Browse local files.
+
+  After you extract it will look like this:
+
+    ...\MonsterHunterWilds\dinput8.dll
+    ...\MonsterHunterWilds\reframework\autorun\mhwilds_qol.lua
+
+If you already have REFramework, you can keep your dinput8.dll and
+copy only reframework\autorun\mhwilds_qol.lua.
+
+Launch the game, load in, press ~ (tilde).
+
+
+--------------------------------------------------------------------------------
+  USAGE
+--------------------------------------------------------------------------------
+
+  ~
+      Toggle the menu (change this on Settings → Keybind).
+      Look input pauses while the menu is open.
+      Function keys are used by the game, so the menu is not F6.
+
+  Health Bars / Move Fast hotkeys
+      Unbound by default. Use the Gameplay toggles, or set a hotkey
+      on Settings → Keybind if you want one with the menu closed.
+
+
+--------------------------------------------------------------------------------
+  HUNTER
+--------------------------------------------------------------------------------
+
+      Toggles and multipliers save to
+      reframework\data\refshell_mhwilds.json.
+
+  God Mode
+      You take no damage. Health is kept full while this is on.
+      Solo only.
+
+  Infinite Stamina
+      Stamina does not drain. Solo only.
+
+  Always Sharp
+      Sharpness stays at max. Solo only.
+
+  More Damage
+      Scales damage you deal to monsters. Your incoming hits are
+      unchanged. Multiplier: 1x / 1.5x / 2x / 3x / 5x / 10x / 99x.
+      Default 2x. Solo only.
+
+
+--------------------------------------------------------------------------------
+  GAMEPLAY
+--------------------------------------------------------------------------------
+
+  Health Bars
+      World-space bars on large monsters. On by default.
+      Name, fill, optional HP text, floating hit numbers, and
+      optional distance to you (so you can pick which to chase).
+      Draw distance and bar scale are on this tab.
+      Not a cheat. Works in a party ( not tested ). Optional hotkey on Settings.
+
+  Move Fast
+      Raises play speed (walks, talk, and locked team crawls).
+      Multiplier: 1x / 1.5x / 2x / 3x / 5x / 10x. Default 2x.
+      Optional hotkey on Settings. Solo only.
+
+  Return to Title
+      Gameplay recovery if a post-quest menu never opens.
+      Same as pause → Return to Title. Turns Move Fast off first.
+
+
+--------------------------------------------------------------------------------
+  QUICK ACTIONS
+--------------------------------------------------------------------------------
+
+  +10000 Zenny / +999999999 Zenny
+      Adds Zenny through the game wallet. HUD may wait until pause.
+      Solo only.
+
+  +1000 Pts / +999999999 Pts
+      Same for Hunter Points. Solo only.
+
+
+--------------------------------------------------------------------------------
+  SETTINGS
+--------------------------------------------------------------------------------
+
+  Window
+      Dock Right / Left / Center. Reset Size. Re-docks when you open
+      the menu or the game window size changes.
+
+  Keybind
+      Rebind the menu toggle (default ~) and optional Health Bars /
+      Move Fast hotkeys.
+
+
+--------------------------------------------------------------------------------
+  NOTES
+--------------------------------------------------------------------------------
+
+  - Cheats fail closed if the party list cannot be read. The mod is designed to keep
+    off while another human hunter is in the session.
+
+  - Health bars are overlay, not a cheat.
+
+  - Move Fast is play speed. More Damage is hits on monsters only.
+
+  - Toggles, hotkeys, and multipliers persist.
+
+  - This is Lua + REFramework. It does not replace game assets.
+
+  - Disable any leftover health_bars.lua in autorun or bars stack.
+
+
+--------------------------------------------------------------------------------
+  CREDITS
+--------------------------------------------------------------------------------
+
+  REFramework
+      https://github.com/praydog/REFramework
+
+================================================================================

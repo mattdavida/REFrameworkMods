@@ -1,0 +1,187 @@
+================================================================================
+  DMC5 Cheats
+================================================================================
+In-game cheat menu for Devil May Cry 5. Press F6.
+
+God Mode, Move Fast, More Damage, character gauges, and Red Orbs.
+The Cheats tab follows who you are playing (Nero / Dante / Vergil / V).
+Docked right. Settings tab can rebind the toggle and redock the window.
+
+This zip is REFramework (dinput8.dll) plus the menu. Unzip into the
+game folder — next to the exe.
+
+
+--------------------------------------------------------------------------------
+  INSTALLATION
+--------------------------------------------------------------------------------
+
+Unzip into the Devil May Cry 5 install folder (same place as
+DevilMayCry5.exe).
+
+In Steam: right-click Devil May Cry 5 → Manage → Browse local files.
+
+  After you extract it will look like this:
+
+    ...\Devil May Cry 5\dinput8.dll
+    ...\Devil May Cry 5\reframework\autorun\simpleCheats.lua
+    ...\Devil May Cry 5\reframework\data\re2_fw_config.txt
+
+If you already have REFramework, unzip anyway (or copy only the
+reframework folder). The menu script is
+reframework\autorun\simpleCheats.lua.
+
+Launch the game, enter a mission, press F6.
+
+Laptop: if F6 does nothing, try Fn+F6.
+
+
+--------------------------------------------------------------------------------
+  USAGE
+--------------------------------------------------------------------------------
+
+  F6
+      Toggle the menu (change this on Settings → Keybind).
+
+  Layout
+      Shared cheats always show. Nero / Dante / Vergil / V sections
+      appear when that character is the one you control.
+
+
+--------------------------------------------------------------------------------
+  SHARED
+--------------------------------------------------------------------------------
+
+      Toggles and multipliers save to
+      reframework\data\refshell_dmc5.json.
+
+  God Mode
+      You take no damage. Health is kept full while this is on.
+
+  Move Fast
+      Raises play speed (animation / movement). Off during cutscenes.
+      Multiplier on Character: 1x / 1.5x / 2x / 3x / 5x / 10x.
+      Default 2x.
+
+  More Damage
+      Scales damage you deal to enemies. Your incoming hits are
+      unchanged. Multiplier on Character: 1x / 1.5x / 2x / 3x / 5x /
+      10x / 99x. Default 2x.
+
+
+--------------------------------------------------------------------------------
+  NERO
+--------------------------------------------------------------------------------
+
+  Infinite DT
+      Keeps Devil Trigger full.
+
+  Infinite Exceed
+      Keeps Red Queen Exceed stocks / gauge full.
+
+  Always Color Up
+      Blue Rose Color Up stays charged. Shell count stays at the
+      unlocked max (1 before Color Up 2, 3 after).
+
+  Mega Buster Keep Charge
+      Charge shot stays. Mega Buster is not destroyed. Other breakers
+      still break.
+
+  Unlock Super Nero
+      Session only. Finale devil body. Does not write the save, so
+      the story unlock can still happen. The in-game DT bar may stay
+      hidden until the story builds it.
+
+  Devil Breakers
+      Adds a breaker the same way a world pickup does: Overture,
+      Ragtime, Helter Skelter, Gerbera, Punch Line, Super Buster,
+      Rawhide, Tomboy, Mega Buster, Gerbera GP01, Pasta Breaker,
+      Sweet Surrender, Banana.
+
+
+--------------------------------------------------------------------------------
+  DANTE
+--------------------------------------------------------------------------------
+
+  Infinite DT
+      Keeps Devil Trigger full.
+
+  Infinite SDT
+      Keeps Sin Devil Trigger full.
+
+  Unlock SDT
+      Session only. Save stays locked so the story beat still unlocks
+      it. Unlocks the form. The SDT bar on the HUD may stay hidden
+      until the story builds it.
+
+
+--------------------------------------------------------------------------------
+  VERGIL
+--------------------------------------------------------------------------------
+
+  Infinite DT
+      Keeps Devil Trigger full.
+
+  Infinite SDT
+      Keeps Sin Devil Trigger full.
+
+  Infinite Concentration
+      Keeps concentration gauge / level full.
+
+
+--------------------------------------------------------------------------------
+  V
+--------------------------------------------------------------------------------
+
+  Infinite DT
+      Keeps Devil Trigger full.
+
+  Infinite Animal Power
+      Keeps Animal Power / concentration full.
+
+
+--------------------------------------------------------------------------------
+  QUICK ACTIONS
+--------------------------------------------------------------------------------
+
+  +10000 Red Orbs
+      Adds 10000 Red Orbs to the live count and the save wallet.
+
+
+--------------------------------------------------------------------------------
+  SETTINGS
+--------------------------------------------------------------------------------
+
+  Window
+      Dock Right / Left / Center. Reset Size. Drag the title bar to
+      move; resize from the corner.
+
+  Keybind
+      Rebind the menu toggle. Default F6.
+
+
+--------------------------------------------------------------------------------
+  NOTES
+--------------------------------------------------------------------------------
+
+  - Enter a mission first. Cheats that need a player do nothing on
+    the title screen.
+
+  - Unlock Super Nero and Unlock SDT are session only. They are not
+    written to the save.
+
+  - Move Fast is play speed. More Damage is hits on enemies only.
+
+  - Toggles and speed / damage multipliers persist. Super Nero / SDT
+    unlocks do not.
+
+  - This is Lua + REFramework. It does not replace game assets.
+
+
+--------------------------------------------------------------------------------
+  CREDITS
+--------------------------------------------------------------------------------
+
+  REFramework
+      https://github.com/praydog/REFramework
+
+================================================================================

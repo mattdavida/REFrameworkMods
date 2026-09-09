@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+  "runtime": {
+    "version": "Lua 5.1"
+  },
+  "workspace": {
+    "library": [
+      "lua"
+    ]
+  },
+  "diagnostics": {
+    "globals": [
+      "sdk",
+      "log",
+      "re",
+      "imgui",
+      "reframework",
+      "draw",
+      "json",
+      "fs",
+      "Vector2f",
+      "Vector3f",
+      "Vector4f",
+      "refcursor",
+      "RefShell"
+    ]
+  }
+}

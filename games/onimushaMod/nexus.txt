@@ -1,0 +1,188 @@
+================================================================================
+  Onimusha QOL
+================================================================================
+In-game QOL menu for Onimusha: Way of the Sword. Press ~ (tilde).
+
+Resource cheats, Issen / deflect assists, god mode, auto absorb,
+an optional soul multiplier, an Appearance mesh picker, and a Give tab.
+Toggles stay off until you turn them on.
+Docked right. Settings can rebind the menu key and each cheat.
+
+This zip is REFramework (dinput8.dll), the refcursor plugin, and the
+menu. Unzip into the game folder — next to the exe.
+
+If you already have REFramework, keep your dinput8.dll and copy:
+
+  reframework\autorun\onimusha_qol.lua
+  reframework\plugins\ref_cursor.dll
+
+
+--------------------------------------------------------------------------------
+  INSTALLATION
+--------------------------------------------------------------------------------
+
+Unzip into the Onimusha: Way of the Sword install folder (same place
+as OnimushaWotS.exe).
+
+In Steam: right-click Onimusha: Way of the Sword → Manage → Browse
+local files.
+
+  After you extract it will look like this:
+
+    ...\OnimushaWotS\dinput8.dll
+    ...\OnimushaWotS\reframework\autorun\onimusha_qol.lua
+    ...\OnimushaWotS\reframework\plugins\ref_cursor.dll
+
+If you already have REFramework, keep your dinput8.dll and copy the
+lua and plugin files above. The plugin is required for the cursor
+while the menu is open.
+
+Launch the game, press ~ (tilde).
+
+
+--------------------------------------------------------------------------------
+  USAGE
+--------------------------------------------------------------------------------
+
+  ~
+      Toggle the menu (change this on Settings → Keybind).
+      Look input pauses while the menu is open. The cursor stays
+      usable until you close it.
+
+  Cheat hotkeys
+      Unbound by default. Use the Samurai toggles, or set a hotkey
+      on Settings → Keybind if you want one with the menu closed.
+
+
+--------------------------------------------------------------------------------
+  SAMURAI
+--------------------------------------------------------------------------------
+
+      Toggles and multipliers save to
+      reframework\data\refshell_onimusha.json.
+
+  Infinite Health
+      Health is kept full while this is on.
+
+  Infinite Stamina
+      Rikido (stamina) is kept full while this is on.
+
+  Infinite Oni Power
+      Oni energy is kept full while this is on.
+
+  Infinite Items
+      Using items does not consume them. Hozuki pouch is refilled.
+
+  Easier Issen
+      Widens the X / Y Issen timing and continues the chain.
+      You still press the button.
+
+  Always Issen
+      Auto-counters when a hit is coming. No button after the first
+      successful Issen (Easier Issen helps land that first one).
+
+  Always Deflect
+      While you hold block, just-guard is treated as perfect.
+      This is the timed block, not parry.
+
+  God Mode (No Hit)
+      Incoming hits do not connect. Health is kept full while this
+      is on.
+
+  Auto Absorb Souls
+      Holds absorb only when souls are out and can be pulled.
+      Idle walking does not keep the absorb pose.
+
+  Soul Multiplier
+      Off until you turn it on. Scales red, yellow, blue, and
+      purple soul gain. Amount: 1x / 1.5x / 2x / 3x / 5x / 10x.
+      Default 2x. 1x is vanilla.
+
+--------------------------------------------------------------------------------
+  APPEARANCE
+--------------------------------------------------------------------------------
+
+      Sword, Haori Coat, and Clothing. Click a button to swap that
+      mesh on the player. Visual only — it does not write unlocks
+      to the save and does not use the in-game Change Appearance
+      menu. The pick is not saved.
+
+      Names come from the game's shrine text. If an item has no
+      name GUID, it shows as Sword 501 (DLC) (or Haori / Clothing
+      plus the enum id). Rows that end in "2" are different
+      meshes, not duplicates.
+
+      DLC skins only work for DLC you own. The files are not in
+      the install otherwise. Named ones such as Sealed Curse
+      work the same as the vanilla list when you own that DLC.
+
+
+--------------------------------------------------------------------------------
+  GIVE
+--------------------------------------------------------------------------------
+
+      Categories match the pause Items Type filter:
+      All, Items, Materials, Offerings, Valuables,
+      plus Genma Notes (portraits / picture book).
+      The list is the game's ItemData table, grouped
+      by ItemEnum.CATEGORY and ordered by SortId.
+      Open the item dropdown, type to filter, set
+      Amount (1 / 5 / 10 / 50 / 99, capped at the
+      item's max), then Give and confirm. Skins,
+      picture book, and Hozuki pouches are omitted.
+      Names come from the game UI. Best effort:
+      most items can be added. Some will not add
+      if they have story requirements. Keys that
+      do add can skip story.
+
+      This writes the inventory / save. Key items can skip
+      story beats. Virtual stubs are omitted.
+
+
+--------------------------------------------------------------------------------
+  SETTINGS
+--------------------------------------------------------------------------------
+
+  Window
+      Dock Right / Left / Center. Reset Size. Re-docks when you open
+      the menu or the game window size changes.
+
+  Keybind
+      Rebind the menu toggle (default ~) and optional cheat hotkeys.
+
+
+--------------------------------------------------------------------------------
+  NOTES
+--------------------------------------------------------------------------------
+
+  - This is a trainer, not a full combat bot. It does not automate
+    parry, just dodge, grab reverse, blade lock, or blade clash.
+
+  - Always Deflect needs you to hold block. Easier Issen still needs
+    X / Y. Always Issen does not, after one Issen has landed.
+
+  - Soul multiplier is opt-in. Leave it off for vanilla gains.
+
+  - Toggles, hotkeys, and the multiplier persist.
+
+  - Appearance mesh swaps are visual. They do not unlock slots
+    in the in-game Change Appearance menu. Give writes the
+    inventory and can unlock those slots.
+
+  - This is Lua + REFramework + ref_cursor.dll. It does not replace
+    game assets.
+
+  - Do not leave test_refcursor.lua in autorun.
+
+  - Disable any leftover main.lua, appearance.lua, give.lua, or
+    refshell.lua in autorun or the menu can load twice.
+
+
+--------------------------------------------------------------------------------
+  CREDITS
+--------------------------------------------------------------------------------
+
+  REFramework
+      https://github.com/praydog/REFramework
+
+================================================================================

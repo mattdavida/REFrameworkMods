@@ -1,0 +1,27 @@
+{
+    "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+    "workspace": {
+        "library": [
+            "reframework/autorun",
+            "../../REFrameworkRefShell/lua"
+        ]
+    },
+    "diagnostics": {
+        "globals": [
+            "sdk",
+            "log",
+            "re",
+            "imgui",
+            "reframework",
+            "draw",
+            "json",
+            "refcursor",
+            "Vector2f",
+            "Vector3f",
+            "Vector4f",
+            "RefShell",
+            "OnimushaAppearance",
+            "OnimushaGive"
+        ]
+    }
+}

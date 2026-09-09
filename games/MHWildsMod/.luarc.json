@@ -1,0 +1,17 @@
+{
+    "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+    "diagnostics": {
+        "globals": [
+            "sdk",
+            "log",
+            "re",
+            "imgui",
+            "reframework",
+            "draw",
+            "json",
+            "Vector2f",
+            "Vector3f",
+            "Vector4f"
+        ]
+    }
+}
