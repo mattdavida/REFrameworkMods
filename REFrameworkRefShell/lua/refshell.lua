@@ -678,10 +678,25 @@ function RefShell.create(opts)
             self._refcursor_held = true
         elseif (not want) and self._refcursor_held then
             pcall(function()
+                if type(refcursor.capture) == "function" then
+                    refcursor.capture(false)
+                end
                 refcursor.request(false)
             end)
             self._refcursor_held = false
         end
+    end
+
+    -- REF swallows wndproc only while Insert is open AND the pointer is
+    -- over an ImGui window. We do the same for this menu via refcursor.capture.
+    function menu:sync_refcursor_capture()
+        if not self:has_refcursor() or type(refcursor.capture) ~= "function" then
+            return
+        end
+        local want = self.lock_cursor and self.cfg.open and self:pointer_over_menu()
+        pcall(function()
+            refcursor.capture(want)
+        end)
     end
 
     -- Plugin locks the engine cursor for the whole open session.
@@ -866,6 +881,7 @@ function RefShell.create(opts)
             end
             self:draw_toast()
             self:draw_confirm()
+            self:sync_refcursor_capture()
             if self.tick_cursor then
                 self:tick_cursor()
             end

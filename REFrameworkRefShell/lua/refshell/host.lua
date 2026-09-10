@@ -400,7 +400,7 @@ function host.attach(menu)
     -- (mouseRotation / padRotation), not AutoRotator and not event camera.
     -- Do not hook GUI, requestMask, setMouseDeltaPos, or markEventCamera.
     function menu:wants_camera_lock()
-        return self.lock_camera and self.cfg.open
+        return self.lock_camera and self.cfg.open and self:pointer_over_menu()
     end
 
     function menu:try_obj_call(obj, name)
