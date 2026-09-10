@@ -14,9 +14,11 @@ MonsterHunterWilds/
   reframework/
     autorun/
       mhwilds_qol.lua
+    plugins/
+      ref_cursor.dll
 ```
 
-If REFramework is already installed, you can drop only `reframework/autorun/mhwilds_qol.lua`.
+If REFramework is already installed, drop `mhwilds_qol.lua` and `ref_cursor.dll`.
 
 Open the menu with **~** (tilde). Settings persist in `reframework/data/refshell_mhwilds.json`.
 
@@ -26,6 +28,7 @@ Open the menu with **~** (tilde). Settings persist in `reframework/data/refshell
 |---|---|
 | `dinput8.dll` | REFramework (optional if already installed) |
 | `reframework/autorun/mhwilds_qol.lua` | Menu, health bars, cheats (bundled) |
+| `reframework/plugins/ref_cursor.dll` | Menu cursor lock |
 
 Do not ship `ref_live.dll` or leftover `health_bars.lua` beside the bundle (bars stack).
 
@@ -33,14 +36,21 @@ Do not ship `ref_live.dll` or leftover `health_bars.lua` beside the bundle (bars
 
 **Gameplay** (party-safe unless noted)
 
-- Health bars — overlay on large monsters (name, fill, optional HP / distance). Not a cheat.
+- Health bars — overlay on large monsters (name, fill, optional HP / distance, floating hits). Crits tick when the hit lands. Small monsters stay off unless you turn them on. Not a cheat.
 - Move Fast — play speed. Solo only.
 - Return to Title — same as pause → Return to Title (turns Move Fast off first)
 - Add Zenny / Hunter Points. Solo only.
 
+**Smithy** (solo lobby only)
+
+- Free Smithy Crafts — weapon tree, hunter armor, Palico sets, and special upgrade. Materials and zenny stay. Artian and kinsect stay paid.
+- Unlock All Armor — every forgeable hunter series. Wilds tabs are Low / High (MAIN / EX), not Rise Master / Special.
+- Unlock All Palico Armor — same for Palico sets.
+- Unlock All Weapons — reveals hidden names (`?????`) on nodes already on the tree. Does not inject locked story columns.
+
 **Hunter** (solo lobby only)
 
-- God Mode, Infinite Stamina, Always Sharp, More Damage
+- God Mode, Infinite Stamina, Infinite Items (pouch use), Free Craft (item recipes), Always Sharp, More Damage
 
 Cheats stay off if another human hunter is in the session.
 
@@ -53,8 +63,8 @@ npm run bundle
 npm run deploy
 ```
 
-`deploy` writes `mhwilds_qol.lua` into the Wilds install. It does not touch `dinput8.dll`.
+`deploy` writes `mhwilds_qol.lua` and copies `ref_cursor.dll` into the Wilds install. It does not touch `dinput8.dll`.
 
 Set `GAME_DIR` if the game is not under the usual Steam paths.
 
-This menu still vendors `autorun/refshell.lua` (the older one-file shell). The release script is one bundled file; do not copy `main.lua` / `refshell.lua` / `healthbars.lua` into `autorun` beside it.
+`bundle` inlines `../../REFrameworkRefShell`. The release script is one file; do not copy `main.lua` / `healthbars.lua` into `autorun` beside it.

@@ -11,7 +11,7 @@ if not RefShell then
 end
 
 if not RefShell then
-    log.error("[mhwilds] refshell.lua missing — put it in reframework/autorun/")
+    log.error("[mhwilds] refshell missing — run npm run bundle (inlines ../../REFrameworkRefShell)")
     return
 end
 
@@ -60,11 +60,18 @@ local DAMAGE_OPTIONS = {
     { 5.0,  "5x" },
     { 10.0, "10x" },
     { 99.0, "99x" },
+    { 200.0, "200x" },
 }
 
 local features = {
     god_mode = false,
     inf_stamina = false,
+    inf_items = false,
+    free_craft = false,
+    free_smithy = false,
+    unlock_armor = false,
+    unlock_palico = false,
+    unlock_weapons = false,
     always_sharp = false,
     more_damage = false,
     more_damage_mult = 2.0,
@@ -73,10 +80,11 @@ local features = {
     move_fast_vk = 0,
     health_bars = true,
     health_bars_vk = 0,
-    health_bars_dist = 55,
+    health_bars_dist = 0,
     health_bars_hp_text = true,
     health_bars_show_dist = true,
     health_bars_scale = 1.5,
+    health_bars_zako = false,
 }
 
 local KIREAJI_NAME = {
@@ -97,6 +105,18 @@ local runtime = {
     cheats_enabled = false,
     god_was_on = false,
     stamina_was_on = false,
+    items_was_on = false,
+    craft_was_on = false,
+    crafting = false,
+    smithy_was_on = false,
+    smithy_paying = false,
+    unlock_was_on = false,
+    unlock_palico_was_on = false,
+    unlock_weapon_was_on = false,
+    weapon_gui_open = false,
+    weapon_gui = nil,
+    weapon_tick = 0,
+    weapon_building = false,
     speed_was_on = false,
     mf_key_down = false,
     mf_vk = nil,
@@ -506,6 +526,778 @@ local function apply_always_sharp(want)
     end
 end
 
+local function apply_inf_items(want)
+    if want then
+        local first = not runtime.items_was_on
+        runtime.items_was_on = true
+        if first then
+            log_action("infinite items on")
+        end
+    elseif runtime.items_was_on then
+        runtime.items_was_on = false
+        log_action("infinite items off")
+    end
+end
+
+local function apply_free_craft(want)
+    if want then
+        local first = not runtime.craft_was_on
+        runtime.craft_was_on = true
+        if first then
+            log_action("free craft on")
+        end
+    elseif runtime.craft_was_on then
+        runtime.craft_was_on = false
+        runtime.crafting = false
+        log_action("free craft off")
+    end
+end
+
+local function apply_free_smithy(want)
+    if want then
+        local first = not runtime.smithy_was_on
+        runtime.smithy_was_on = true
+        if first then
+            log_action("free smithy on")
+        end
+    elseif runtime.smithy_was_on then
+        runtime.smithy_was_on = false
+        runtime.smithy_paying = false
+        log_action("free smithy off")
+    end
+end
+
+local refresh_armor_unlock
+local refresh_palico_unlock
+local find_weapon_gui
+
+local function apply_unlock_armor(want)
+    if want then
+        local first = not runtime.unlock_was_on
+        runtime.unlock_was_on = true
+        if first then
+            log_action("unlock armor on")
+            if refresh_armor_unlock then
+                refresh_armor_unlock()
+            end
+        end
+    elseif runtime.unlock_was_on then
+        runtime.unlock_was_on = false
+        log_action("unlock armor off")
+    end
+end
+
+local function apply_unlock_palico(want)
+    if want then
+        local first = not runtime.unlock_palico_was_on
+        runtime.unlock_palico_was_on = true
+        if first then
+            log_action("unlock palico on")
+            if refresh_palico_unlock then
+                refresh_palico_unlock()
+            end
+        end
+    elseif runtime.unlock_palico_was_on then
+        runtime.unlock_palico_was_on = false
+        log_action("unlock palico off")
+    end
+end
+
+-- Rise FreeTree: tick while smithy is up, never rebuild lists, never touch arrays.
+-- Wilds crash was the same: setRecipeData / updateCurrentEquipData / checkStoryFlag
+-- during structureDispRecipeList grows _DispRecipeLists and dies.
+-- IsOpen stays false on this page; parent smithy owns open. Use IsVisible + a recipe.
+local function apply_unlock_weapons(want)
+    if not want then
+        if runtime.unlock_weapon_was_on then
+            runtime.unlock_weapon_was_on = false
+            runtime.weapon_gui_open = false
+            runtime.weapon_gui = nil
+            runtime.weapon_tick = 0
+            runtime.weapon_building = false
+            log_action("unlock weapons off")
+        end
+        return
+    end
+    local first = not runtime.unlock_weapon_was_on
+    runtime.unlock_weapon_was_on = true
+    if first then
+        log_action("unlock weapons on")
+    end
+    runtime.weapon_tick = (runtime.weapon_tick or 0) + 1
+    if (runtime.weapon_tick % 8) ~= 1 then
+        return
+    end
+    local gui = runtime.weapon_gui
+    if not is_managed(gui) and find_weapon_gui then
+        runtime.weapon_gui = find_weapon_gui()
+        gui = runtime.weapon_gui
+    end
+    local showing = false
+    if is_managed(gui) then
+        local ok = pcall(function()
+            showing = gui:call("get_IsVisible") == true
+                and is_managed(gui:get_field("_CurrentRecipe"))
+        end)
+        if not ok then
+            runtime.weapon_gui = nil
+        end
+    end
+    runtime.weapon_gui_open = showing
+end
+
+-- Rise consumeItem: field use must still fire; only the stack drop is skipped.
+-- Wilds analog is ItemUtil.useItem. changeItemNum is also sell/craft/dialogue,
+-- so skip that only for a negative pouch delta.
+local function consume_ok()
+    return runtime.cheats_enabled and features.inf_items
+end
+
+local function craft_ok()
+    return runtime.cheats_enabled and features.free_craft
+end
+
+local function smithy_ok()
+    return runtime.cheats_enabled and features.free_smithy
+end
+
+local function unlock_ok()
+    return runtime.cheats_enabled and features.unlock_armor
+end
+
+local function unlock_palico_ok()
+    return runtime.cheats_enabled and features.unlock_palico
+end
+
+local function unlock_weapon_ok()
+    return runtime.cheats_enabled
+        and features.unlock_weapons
+        and runtime.weapon_gui_open
+        and not runtime.weapon_building
+end
+
+local function skip_pouch_spend()
+    return consume_ok() or runtime.crafting
+end
+
+local function recipe_type_name(ptr)
+    local obj
+    pcall(function()
+        obj = sdk.to_managed_object(ptr)
+    end)
+    if not obj then
+        return nil
+    end
+    local name
+    pcall(function()
+        name = obj:get_type_definition():get_full_name()
+    end)
+    return name
+end
+
+-- Unlock All Armor stays hunter-only. Free Smithy covers weapons, hunter armor, Palico.
+local function is_armor_smithy(ptr)
+    local name = recipe_type_name(ptr)
+    return name == "app.EquipDef.ArmorRecipeInfo"
+        or name == "app.EquipDef.ArmorUpgradeRecipeInfo"
+end
+
+local function is_palico_smithy(ptr)
+    return recipe_type_name(ptr) == "app.EquipDef.OtEquipRecipeInfo"
+end
+
+local function is_weapon_smithy(ptr)
+    local obj
+    pcall(function()
+        obj = sdk.to_managed_object(ptr)
+    end)
+    if not obj then
+        return false
+    end
+    local is_w
+    pcall(function()
+        is_w = obj:get_field("_IsWeapon")
+    end)
+    return is_w == true
+end
+
+local function is_smithy_recipe(ptr)
+    return is_armor_smithy(ptr) or is_weapon_smithy(ptr) or is_palico_smithy(ptr)
+end
+
+local function as_i16(raw)
+    if type(raw) ~= "number" then
+        return nil
+    end
+    raw = raw & 0xFFFF
+    if raw >= 0x8000 then
+        return raw - 0x10000
+    end
+    return raw
+end
+
+local function enum_value(type_name, field)
+    local td = sdk.find_type_definition(type_name)
+    local f = td and td:get_field(field)
+    if not f then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return f:get_data(nil)
+    end)
+    if ok and type(value) == "number" then
+        return value
+    end
+    return nil
+end
+
+local STOCK_POUCH = enum_value("app.ItemUtil.STOCK_TYPE", "POUCH")
+
+do
+    local item_td = sdk.find_type_definition("app.ItemUtil")
+    local use_item = item_td and (
+        item_td:get_method("useItem(app.ItemDef.ID, System.Int16, System.Boolean)")
+        or item_td:get_method("useItem")
+    )
+    if use_item then
+        sdk.hook(use_item, function()
+            if consume_ok() then
+                return sdk.PreHookResult.SKIP_ORIGINAL
+            end
+        end, function(retval)
+            return retval
+        end)
+        log.info("[mhwilds] hooked ItemUtil.useItem")
+    else
+        log.error("[mhwilds] ItemUtil.useItem missing")
+    end
+
+    local change_num = item_td and (
+        item_td:get_method("changeItemNum(app.ItemDef.ID, System.Int16, app.ItemUtil.STOCK_TYPE)")
+        or item_td:get_method("changeItemNum")
+    )
+    if change_num then
+        sdk.hook(change_num, function(args)
+            local n = nil
+            local stock = nil
+            pcall(function()
+                n = as_i16(sdk.to_int64(args[3]))
+                stock = sdk.to_int64(args[4])
+            end)
+            if type(stock) == "number" then
+                stock = stock & 0xFFFFFFFF
+            end
+            if n == nil or n >= 0 then
+                return
+            end
+            -- Smithy pay is box (and sometimes pouch). Scoped to FacilityTradeInfo.pay.
+            if runtime.smithy_paying then
+                return sdk.PreHookResult.SKIP_ORIGINAL
+            end
+            if not skip_pouch_spend() then
+                return
+            end
+            if STOCK_POUCH == nil or stock ~= STOCK_POUCH then
+                return
+            end
+            return sdk.PreHookResult.SKIP_ORIGINAL
+        end, function(retval)
+            return retval
+        end)
+        log.info("[mhwilds] hooked ItemUtil.changeItemNum")
+    else
+        log.error("[mhwilds] ItemUtil.changeItemNum missing")
+    end
+end
+
+do
+    local recipe_td = sdk.find_type_definition("app.ItemRecipeUtil")
+    local enable_type = enum_value("app.ItemRecipeUtil.CRAFT_ENABLE_TYPE", "ENABLE") or 0
+
+    local function hook_craft_enable(method)
+        if not method then
+            return
+        end
+        sdk.hook(method, function()
+        end, function(retval)
+            if craft_ok() then
+                return sdk.to_ptr(1)
+            end
+            return retval
+        end)
+    end
+
+    if recipe_td then
+        hook_craft_enable(recipe_td:get_method(
+            "isCraftEnable(app.ItemDef.ID, app.ItemUtil.STOCK_TYPE, System.Boolean)"
+        ))
+        hook_craft_enable(recipe_td:get_method(
+            "isCraftEnable(app.ItemDef.ID, app.ItemUtil.STOCK_TYPE, System.Boolean, System.Int32)"
+        ))
+
+        local info_m = recipe_td:get_method(
+            "getEnableCraftInfo(app.user_data.cItemRecipe.cData, app.ItemUtil.STOCK_TYPE, app.ItemDef.ID, System.Int16)"
+        )
+        if info_m then
+            sdk.hook(info_m, function()
+            end, function(retval)
+                if craft_ok() then
+                    local info
+                    pcall(function()
+                        info = sdk.to_managed_object(retval)
+                    end)
+                    if info then
+                        pcall(function()
+                            info:set_field("EnableType", enable_type)
+                        end)
+                        local n = nil
+                        pcall(function()
+                            n = info:get_field("EnableCount")
+                        end)
+                        if type(n) ~= "number" or n < 1 then
+                            pcall(function()
+                                info:set_field("EnableCount", 99)
+                            end)
+                        end
+                    end
+                end
+                return retval
+            end)
+        end
+
+        local craft_m = recipe_td:get_method(
+            "craft(app.user_data.cItemRecipe.cData, app.ItemUtil.STOCK_TYPE, System.Int16)"
+        )
+        if craft_m then
+            sdk.hook(craft_m, function()
+                runtime.crafting = craft_ok()
+            end, function(retval)
+                runtime.crafting = false
+                return retval
+            end)
+        end
+        log.info("[mhwilds] hooked ItemRecipeUtil craft checks")
+    else
+        log.error("[mhwilds] ItemRecipeUtil missing")
+    end
+end
+
+-- Smithy armor + weapon tree + Palico (CREATE / UPGRADE). Shared Excel rows stay intact.
+-- FacilityTradeInfo.isEnoughItem is the cost gate (same role as isCraftEnable).
+-- pay() still runs so the forge callback fires; spend is skipped for that window.
+-- WeaponRecipeInfo.tradeConditions (need previous weapon) is left to vanilla.
+do
+    local function as_i32(raw)
+        if type(raw) ~= "number" then
+            return nil
+        end
+        raw = raw & 0xFFFFFFFF
+        if raw >= 0x80000000 then
+            return raw - 0x100000000
+        end
+        return raw
+    end
+
+    local checking = false
+
+    local function hook_trade_bool(method)
+        if not method then
+            return
+        end
+        sdk.hook(method, function(args)
+            checking = smithy_ok() and is_smithy_recipe(args[2])
+        end, function(retval)
+            if checking then
+                return sdk.to_ptr(1)
+            end
+            return retval
+        end)
+    end
+
+    local function hook_pay(method)
+        if not method then
+            return
+        end
+        sdk.hook(method, function(args)
+            runtime.smithy_paying = smithy_ok() and is_smithy_recipe(args[2])
+        end, function(retval)
+            runtime.smithy_paying = false
+            return retval
+        end)
+    end
+
+    local trade_td = sdk.find_type_definition("app.FacilityDef.FacilityTradeInfo")
+    if trade_td then
+        hook_trade_bool(trade_td:get_method("isEnoughItem()"))
+        hook_trade_bool(trade_td:get_method("isEnoughItem(app.ItemDef.ID, System.Int32)"))
+        hook_trade_bool(trade_td:get_method("isEnoughMoney()"))
+        hook_trade_bool(trade_td:get_method("canTrade()"))
+        hook_pay(trade_td:get_method("pay(System.Action)"))
+        hook_pay(trade_td:get_method("pay(app.ItemUtil.STOCK_TYPE, System.Action)"))
+        log.info("[mhwilds] hooked FacilityTradeInfo smithy")
+    else
+        log.error("[mhwilds] FacilityTradeInfo missing")
+    end
+
+    local function hook_wallet_spend(type_name, signature)
+        local td = sdk.find_type_definition(type_name)
+        local method = td and td:get_method(signature)
+        if not method then
+            return false
+        end
+        sdk.hook(method, function(args)
+            if not runtime.smithy_paying then
+                return
+            end
+            local n
+            pcall(function()
+                n = as_i32(sdk.to_int64(args[2]))
+            end)
+            if n ~= nil and n < 0 then
+                return sdk.PreHookResult.SKIP_ORIGINAL
+            end
+        end, function(retval)
+            return retval
+        end)
+        return true
+    end
+
+    if hook_wallet_spend("app.BasicParamUtil", "addMoney(System.Int32, System.Boolean)") then
+        log.info("[mhwilds] hooked BasicParamUtil.addMoney")
+    else
+        log.error("[mhwilds] BasicParamUtil.addMoney missing")
+    end
+    hook_wallet_spend("app.BasicParamUtil", "addPoint(System.Int32, System.Boolean)")
+end
+
+-- Unlock All Armor / Weapons. Rise stuffed series into tab buckets and cleared flags.
+-- Wilds analog: isOpenRecipe is the visibility gate (key item / story / hunt / HR).
+-- Weapon ????? names are the same gate. Tree column locks use checkStoryFlag.
+-- Armor tabs are MissionUtil.STORYLV_TYPE (MAIN / EX / EX_CLEAR).
+do
+    local STORY_MAIN = enum_value("app.MissionUtil.STORYLV_TYPE", "MAIN")
+    local STORY_EX = enum_value("app.MissionUtil.STORYLV_TYPE", "EX")
+    local STORY_EX_CLEAR = enum_value("app.MissionUtil.STORYLV_TYPE", "EX_CLEAR")
+
+    local function type_name(obj)
+        if not is_managed(obj) then
+            return nil
+        end
+        local name
+        pcall(function()
+            name = obj:get_type_definition():get_full_name()
+        end)
+        return name
+    end
+
+    local function list_count(list)
+        if not is_managed(list) then
+            return 0
+        end
+        local n
+        pcall(function()
+            n = list:get_field("_size")
+        end)
+        if type(n) == "number" then
+            return n
+        end
+        return 0
+    end
+
+    local function list_item(list, index)
+        if not is_managed(list) then
+            return nil
+        end
+        local item
+        pcall(function()
+            item = list:call("get_Item", index)
+        end)
+        if is_managed(item) then
+            return item
+        end
+        local items
+        pcall(function()
+            items = list:get_field("_items")
+        end)
+        if is_managed(items) then
+            pcall(function()
+                item = items:get_element(index)
+            end)
+        end
+        return item
+    end
+
+    local function find_input_gui(want)
+        local gm = sdk.get_managed_singleton("app.GUIManager")
+        if not is_managed(gm) then
+            return nil
+        end
+        local list
+        pcall(function()
+            list = gm:get_field("_InputGUI")
+        end)
+        local n = list_count(list)
+        for i = 0, n - 1 do
+            local gui = list_item(list, i)
+            if type_name(gui) == want then
+                return gui
+            end
+        end
+        return nil
+    end
+
+    local function arr_len(arr)
+        if not is_managed(arr) then
+            return 0
+        end
+        local n
+        pcall(function()
+            n = arr:get_size()
+        end)
+        if type(n) == "number" then
+            return n
+        end
+        return 0
+    end
+
+    local function list_has(list, value)
+        if not is_managed(list) or value == nil then
+            return false
+        end
+        local ok, yes = pcall(function()
+            return list:call("Contains", value)
+        end)
+        return ok and yes == true
+    end
+
+    local function ensure_armor_tabs(cat)
+        if not is_managed(cat) then
+            return
+        end
+        local list
+        pcall(function()
+            list = cat:get_field("CategoryList")
+        end)
+        if not is_managed(list) then
+            return
+        end
+        local texts
+        pcall(function()
+            texts = cat:get_field("_CategoryTabTextIds")
+        end)
+        local max_tabs = arr_len(texts)
+        if max_tabs < 1 then
+            max_tabs = 3
+        end
+        local levels = { STORY_MAIN, STORY_EX, STORY_EX_CLEAR }
+        local added = false
+        for i = 1, math.min(#levels, max_tabs) do
+            local lv = levels[i]
+            if lv ~= nil and not list_has(list, lv) then
+                local ok = pcall(function()
+                    list:call("Add", lv)
+                end)
+                if ok then
+                    added = true
+                end
+            end
+        end
+        if added then
+            pcall(function()
+                cat:call("changeTabVisible", true)
+            end)
+        end
+    end
+
+    local function refresh_list(gui)
+        if not is_managed(gui) then
+            return
+        end
+        local cat
+        pcall(function()
+            cat = gui:call("get__Category")
+        end)
+        ensure_armor_tabs(cat)
+        local alist
+        pcall(function()
+            alist = gui:call("get__ArmorList")
+        end)
+        if is_managed(alist) then
+            pcall(function()
+                alist:call("setupArmorSeries")
+            end)
+        end
+    end
+
+    refresh_armor_unlock = function()
+        if not unlock_ok() then
+            return
+        end
+        refresh_list(find_input_gui("app.GUI080100"))
+    end
+
+    local function refresh_palico_list(gui)
+        if not is_managed(gui) then
+            return
+        end
+        local cat
+        pcall(function()
+            cat = gui:call("get_Category")
+        end)
+        ensure_armor_tabs(cat)
+        local slist
+        pcall(function()
+            slist = gui:call("get_EquipSeriesList")
+        end)
+        if is_managed(slist) then
+            pcall(function()
+                slist:call("setupRowInfo")
+            end)
+        end
+    end
+
+    refresh_palico_unlock = function()
+        if not unlock_palico_ok() then
+            return
+        end
+        refresh_palico_list(find_input_gui("app.GUI080107"))
+    end
+
+    find_weapon_gui = function()
+        return find_input_gui("app.GUI080101")
+    end
+
+    local checking = false
+
+    local function hook_unlock_bool(method, ok_fn)
+        if not method then
+            return
+        end
+        sdk.hook(method, function()
+            checking = ok_fn()
+        end, function(retval)
+            if checking then
+                return sdk.to_ptr(1)
+            end
+            return retval
+        end)
+    end
+
+    local recipe_base = sdk.find_type_definition("app.EquipDef.EquipRecipeInfoBase")
+    if recipe_base then
+        local open_m = recipe_base:get_method("isOpenRecipe()")
+        if open_m then
+            sdk.hook(open_m, function(args)
+                checking = (unlock_ok() and is_armor_smithy(args[2]))
+                    or (unlock_palico_ok() and is_palico_smithy(args[2]))
+                    or (unlock_weapon_ok() and is_weapon_smithy(args[2]))
+            end, function(retval)
+                if checking then
+                    return sdk.to_ptr(1)
+                end
+                return retval
+            end)
+        end
+        log.info("[mhwilds] hooked EquipRecipeInfoBase.isOpenRecipe")
+    else
+        log.error("[mhwilds] EquipRecipeInfoBase missing")
+    end
+
+    local armor_info = sdk.find_type_definition("app.EquipDef.ArmorRecipeInfo")
+    if armor_info then
+        hook_unlock_bool(armor_info:get_method("tradeConditions()"), unlock_ok)
+    end
+
+    local otomo_info = sdk.find_type_definition("app.EquipDef.OtEquipRecipeInfo")
+    if otomo_info then
+        hook_unlock_bool(otomo_info:get_method("tradeConditions()"), unlock_palico_ok)
+    end
+
+    -- Do not hook WeaponRecipeInfo.tradeConditions (field hitch).
+    -- Do not hook checkStoryFlag or call structureDispRecipeList / setRecipeData
+    -- / updateCurrentEquipData. Those rebuild _DispRecipeLists and crash the
+    -- same way Rise did when unlock wrote into smithy arrays.
+    -- Fence the first tree build so isOpenRecipe stays vanilla until a recipe exists.
+
+    local wep_gui = sdk.find_type_definition("app.GUI080101")
+    local build_m = wep_gui and wep_gui:get_method("structureDispRecipeList()")
+    if build_m then
+        sdk.hook(build_m, function()
+            runtime.weapon_building = true
+        end, function(retval)
+            runtime.weapon_building = false
+            return retval
+        end)
+        log.info("[mhwilds] hooked GUI080101.structureDispRecipeList fence")
+    end
+
+    -- Do not hook isVisibleItem. That hides slots with no piece (earrings).
+    -- Forcing it on draws the unknown icon with every badge stacked.
+
+    local function hook_category_open(method)
+        if not method then
+            return
+        end
+        sdk.hook(method, function(args)
+            if not unlock_ok() then
+                return
+            end
+            local cat
+            pcall(function()
+                cat = sdk.to_managed_object(args[2])
+            end)
+            ensure_armor_tabs(cat)
+        end, function(retval)
+            if unlock_ok() then
+                refresh_armor_unlock()
+            end
+            return retval
+        end)
+    end
+
+    local cat_td = sdk.find_type_definition("app.GUI080100Category")
+    if cat_td then
+        hook_category_open(cat_td:get_method("init()"))
+        hook_category_open(cat_td:get_method("onOpen()"))
+        log.info("[mhwilds] hooked GUI080100Category armor tabs")
+    else
+        log.error("[mhwilds] GUI080100Category missing")
+    end
+
+    local function hook_palico_category_open(method)
+        if not method then
+            return
+        end
+        sdk.hook(method, function(args)
+            if not unlock_palico_ok() then
+                return
+            end
+            local cat
+            pcall(function()
+                cat = sdk.to_managed_object(args[2])
+            end)
+            ensure_armor_tabs(cat)
+        end, function(retval)
+            if unlock_palico_ok() then
+                refresh_palico_unlock()
+            end
+            return retval
+        end)
+    end
+
+    local otomo_cat = sdk.find_type_definition("app.GUI080107Category")
+    if otomo_cat then
+        hook_palico_category_open(otomo_cat:get_method("init()"))
+        hook_palico_category_open(otomo_cat:get_method("onOpen()"))
+        log.info("[mhwilds] hooked GUI080107Category palico tabs")
+    else
+        log.error("[mhwilds] GUI080107Category missing")
+    end
+
+    -- Do not hook GUI080101 onOpen/onClose. IsOpen stays false while the
+    -- tree is up, so onOpen can latch weapon_gui_open in the field.
+end
+
 local function as_float(value)
     local n = tonumber(value)
     if not n then
@@ -769,8 +1561,10 @@ menu = RefShell.create({
     height = 860,
     start_open = false,
     persist = features,
+    host = true,
     lock_camera = true,
     lock_cursor = true,
+    show_logs = false,
 })
 
 menu.extra_keybinds = function(ui)
@@ -825,6 +1619,14 @@ menu:add_tab("Hunter", function(ui)
     ui.section("Cheats", function()
         ui.bind_toggle("God Mode", features, "god_mode")
         ui.bind_toggle("Infinite Stamina", features, "inf_stamina")
+        ui.bind_toggle("Infinite Items", features, "inf_items")
+        if features.inf_items then
+            ui.muted("Pouch use only. Sell, craft, and ammo still consume.")
+        end
+        ui.bind_toggle("Free Craft", features, "free_craft")
+        if features.free_craft then
+            ui.muted("Item recipe list. Missing mats still craft. Materials stay in the pouch.")
+        end
         ui.bind_toggle("Always Sharp", features, "always_sharp")
         ui.bind_toggle("More Damage", features, "more_damage")
         ui.bind_combo("Damage", features, "more_damage_mult", DAMAGE_OPTIONS)
@@ -872,10 +1674,11 @@ menu:add_tab("Gameplay", function(ui)
         ui.bind_toggle("Health Bars", features, "health_bars")
         ui.bind_toggle("Show HP text", features, "health_bars_hp_text")
         ui.bind_toggle("Show distance", features, "health_bars_show_dist")
-        ui.muted("HP text is 5000/5000 on the bar. Distance is how far you are from that monster.")
+        ui.bind_toggle("Small monsters", features, "health_bars_zako")
+        ui.muted("Bosses always. Small monsters stay off unless you turn them on — packs will flood otherwise.")
         ui.bind_combo("Draw distance", features, "health_bars_dist", DIST_OPTIONS)
         ui.bind_combo("Bar scale", features, "health_bars_scale", SCALE_OPTIONS)
-        ui.muted("How far a bar still draws. Longer range helps sniping and makes town bleed worse.")
+        ui.muted("Bosses 2x red. Small monsters 1x teal. Scale multiplies both. Draw distance is the combo above.")
     end, true)
 
     ui.section("Play Speed", function()
@@ -900,6 +1703,43 @@ menu:add_tab("Gameplay", function(ui)
         }, 1)
         ui.muted("If a post-quest menu never opens, this is the pause-menu Return to Title. Turns Move Fast off first. Does not re-clear the quest.")
     end, true)
+end)
+
+menu:add_tab("Smithy", function(ui)
+    local party = runtime.party
+    ui.section("Crafts", function()
+        ui.bind_toggle("Free Smithy Crafts", features, "free_smithy")
+        if features.free_smithy then
+            ui.muted("Weapon tree, hunter armor, Palico sets, and special upgrade. Missing mats still forge. Materials and zenny stay.")
+        else
+            ui.muted("Forge without spending materials or zenny.")
+        end
+    end, true)
+
+    ui.section("Unlock", function()
+        ui.bind_toggle("Unlock All Armor", features, "unlock_armor")
+        if features.unlock_armor then
+            ui.muted("Shows every forgeable series. Reopen the armor list or switch rank tab if a row is missing.")
+        else
+            ui.muted("Show locked hunter armor. Wilds tabs are Low / High rank (MAIN / EX), not Rise Master / Special.")
+        end
+        ui.bind_toggle("Unlock All Palico Armor", features, "unlock_palico")
+        if features.unlock_palico then
+            ui.muted("Shows every forgeable Palico series. Switch Low / High if a row is missing.")
+        else
+            ui.muted("Show locked Palico sets. Same Low / High tabs as hunter armor.")
+        end
+        ui.bind_toggle("Unlock All Weapons", features, "unlock_weapons")
+        if features.unlock_weapons then
+            ui.muted("Reveals hidden names (?????) on nodes already on the tree. Does not inject locked story columns.")
+        else
+            ui.muted("Show hidden weapon names on the existing tree.")
+        end
+    end, true)
+
+    if not party.enabled then
+        ui.muted("Solo only. Ignored while others are in the party.")
+    end
 end)
 
 local function poll_health_bars_hotkey()
@@ -927,6 +1767,9 @@ local function poll_health_bars_hotkey()
         menu.dirty = true
         if HealthBars then
             HealthBars.enabled = features.health_bars and true or false
+            if features.health_bars and HealthBars.kick then
+                HealthBars.kick()
+            end
         end
         menu:toast(
             features.health_bars and "Health Bars on" or "Health Bars off",
@@ -985,13 +1828,25 @@ re.on_frame(function()
     runtime.zenny = read_zenny()
     runtime.points = read_points()
     if HealthBars then
-        HealthBars.enabled = features.health_bars and true or false
+        local want = features.health_bars ~= false
+        local was = HealthBars.enabled and true or false
+        HealthBars.enabled = want
+        if want and not was and HealthBars.kick then
+            HealthBars.kick()
+        end
+        HealthBars.show_zako = features.health_bars_zako and true or false
         local dist = features.health_bars_dist
         if type(dist) == "number" then
             HealthBars.max_draw_dist = dist
         end
         HealthBars.show_hp_text = features.health_bars_hp_text ~= false
         HealthBars.show_dist = features.health_bars_show_dist ~= false
+        if HealthBars.paused then
+            HealthBars.paused = false
+            if HealthBars.kick then
+                HealthBars.kick()
+            end
+        end
         local scale = features.health_bars_scale
         if type(scale) == "number" then
             if scale > 2.5 then
@@ -1008,6 +1863,12 @@ re.on_frame(function()
     end
     apply_god_mode(runtime.cheats_enabled and features.god_mode)
     apply_inf_stamina(runtime.cheats_enabled and features.inf_stamina)
+    apply_inf_items(runtime.cheats_enabled and features.inf_items)
+    apply_free_craft(runtime.cheats_enabled and features.free_craft)
+    apply_free_smithy(runtime.cheats_enabled and features.free_smithy)
+    apply_unlock_armor(runtime.cheats_enabled and features.unlock_armor)
+    apply_unlock_palico(runtime.cheats_enabled and features.unlock_palico)
+    apply_unlock_weapons(runtime.cheats_enabled and features.unlock_weapons)
     apply_always_sharp(runtime.cheats_enabled and features.always_sharp)
     apply_play_speed(runtime.cheats_enabled and features.move_fast)
 end)

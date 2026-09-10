@@ -22,9 +22,9 @@ npm run bundle
 npm run deploy
 ```
 
-Rise and Onimusha inline `../../REFrameworkRefShell` at bundle time (`REFSHELL_DIR` overrides). Wilds and DMC5 still vendor a copy of `refshell.lua` in their `autorun` — same shell, older wiring.
+Rise, Wilds, and Onimusha inline `../../REFrameworkRefShell` at bundle time (`REFSHELL_DIR` overrides). DMC5 still vendors a copy of `refshell.lua` in `autorun`.
 
-`deploy` writes the bundled lua (and `ref_cursor.dll` where that game uses it) into the Steam install. It does not touch `dinput8.dll`.
+`deploy` writes the bundled lua (and `ref_cursor.dll` for Rise / Onimusha / Wilds) into the Steam install. It does not touch `dinput8.dll`.
 
 ## Ship (Nexus)
 
@@ -34,7 +34,7 @@ Each game is still its own extract. Typical layout:
 <Game>/
   dinput8.dll                 REFramework (if the zip includes it)
   reframework/autorun/*.lua
-  reframework/plugins/ref_cursor.dll   Rise / Onimusha
+  reframework/plugins/ref_cursor.dll   Rise / Onimusha / Wilds
 ```
 
 See each game's `nexus.txt` and `README.md`.
@@ -45,6 +45,6 @@ Default toggle is **~** (tilde). Settings persist under `reframework/data/refshe
 
 ## Later
 
-- Point Wilds / DMC5 at the shared RefShell folder (same as Rise).
+- Point DMC5 at the shared RefShell folder (same as Rise / Wilds).
 - Rename game folders to `rise`, `wilds`, `onimusha`, `dmc5` if you want them shorter.
 - Do not edit the old standalone repos (`MHRiseMod`, …) once this tree is the source of truth.

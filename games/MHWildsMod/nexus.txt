@@ -3,16 +3,18 @@
 ================================================================================
 In-game QOL menu for Monster Hunter Wilds. Press ~ (tilde).
 
-Hunter cheats, health bars, play speed, and wallet adds.
+Hunter cheats, health bars, play speed, smithy crafts, and wallet adds.
 Cheats stay off unless you are solo (no other human hunters).
-Health bars are overlay only — they are not a cheat and work in a party. ( not tested )
+Health bars are overlay only — they are not a cheat and work in a party.
 Docked right. Settings tab can rebind the toggle and redock the window.
 
-This zip is REFramework (dinput8.dll) plus the menu. Unzip into the
-game folder — next to the exe.
+This zip is REFramework (dinput8.dll), the menu, and ref_cursor.dll.
+Unzip into the game folder — next to the exe.
 
-If you already have REFramework, you just need to copy the single lua file to 
-<game-dir>/reframework/autorun
+If you already have REFramework, copy the lua file and ref_cursor.dll:
+
+  <game-dir>/reframework/autorun/mhwilds_qol.lua
+  <game-dir>/reframework/plugins/ref_cursor.dll
 
 
 --------------------------------------------------------------------------------
@@ -28,9 +30,10 @@ In Steam: right-click Monster Hunter Wilds → Manage → Browse local files.
 
     ...\MonsterHunterWilds\dinput8.dll
     ...\MonsterHunterWilds\reframework\autorun\mhwilds_qol.lua
+    ...\MonsterHunterWilds\reframework\plugins\ref_cursor.dll
 
 If you already have REFramework, you can keep your dinput8.dll and
-copy only reframework\autorun\mhwilds_qol.lua.
+copy only the autorun lua and plugins\ref_cursor.dll.
 
 Launch the game, load in, press ~ (tilde).
 
@@ -63,12 +66,20 @@ Launch the game, load in, press ~ (tilde).
   Infinite Stamina
       Stamina does not drain. Solo only.
 
+  Infinite Items
+      Pouch use only. Sell, craft, and ammo still consume.
+      Solo only.
+
+  Free Craft
+      Item recipe list. Missing mats still craft. Materials stay
+      in the pouch. Solo only.
+
   Always Sharp
       Sharpness stays at max. Solo only.
 
   More Damage
       Scales damage you deal to monsters. Your incoming hits are
-      unchanged. Multiplier: 1x / 1.5x / 2x / 3x / 5x / 10x / 99x.
+      unchanged. Multiplier: 1x / 1.5x / 2x / 3x / 5x / 10x / 99x / 200x.
       Default 2x. Solo only.
 
 
@@ -80,8 +91,11 @@ Launch the game, load in, press ~ (tilde).
       World-space bars on large monsters. On by default.
       Name, fill, optional HP text, floating hit numbers, and
       optional distance to you (so you can pick which to chase).
+      Crits tick the bar when the hit lands, not after hitstop.
+      Small monsters stay off unless you turn them on — packs
+      will flood otherwise.
       Draw distance and bar scale are on this tab.
-      Not a cheat. Works in a party ( not tested ). Optional hotkey on Settings.
+      Not a cheat. Works in a party. Optional hotkey on Settings.
 
   Move Fast
       Raises play speed (walks, talk, and locked team crawls).
@@ -91,6 +105,30 @@ Launch the game, load in, press ~ (tilde).
   Return to Title
       Gameplay recovery if a post-quest menu never opens.
       Same as pause → Return to Title. Turns Move Fast off first.
+
+
+--------------------------------------------------------------------------------
+  SMITHY
+--------------------------------------------------------------------------------
+
+  Free Smithy Crafts
+      Weapon tree, hunter armor, Palico sets, and special upgrade.
+      Missing mats still forge. Materials and zenny stay.
+      Artian and kinsect stay paid. Solo only.
+
+  Unlock All Armor
+      Shows every forgeable hunter series. Wilds tabs are Low /
+      High rank (MAIN / EX), not Rise Master / Special.
+      Reopen the armor list or switch rank tab if a row is missing.
+      Solo only.
+
+  Unlock All Palico Armor
+      Same for Palico sets. Switch Low / High if a row is missing.
+      Solo only.
+
+  Unlock All Weapons
+      Reveals hidden names (?????) on nodes already on the tree.
+      Does not inject locked story columns. Solo only.
 
 
 --------------------------------------------------------------------------------
