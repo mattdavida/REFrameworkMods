@@ -36,7 +36,7 @@ Do not ship `ref_live.dll` or leftover `health_bars.lua` beside the bundle (bars
 
 **Gameplay** (party-safe unless noted)
 
-- Health bars — overlay on large monsters (name, fill, optional HP / distance, floating hits). Crits tick when the hit lands. Small monsters stay off unless you turn them on. Not a cheat.
+- Health bars — overlay on large monsters (name, fill, optional HP / distance, floating hits). Crits tick when the hit lands. Small monsters stay off unless you turn them on. Show type filters the live roster on this map. Not a cheat.
 - Move Fast — play speed. Solo only.
 - Return to Title — same as pause → Return to Title (turns Move Fast off first)
 - Add Zenny / Hunter Points. Solo only.
@@ -50,7 +50,7 @@ Do not ship `ref_live.dll` or leftover `health_bars.lua` beside the bundle (bars
 
 **Hunter** (solo lobby only)
 
-- God Mode, Infinite Stamina, Infinite Items (pouch use), Free Craft (item recipes), Always Sharp, More Damage
+- God Mode, Infinite Stamina, Infinite Items (pouch use), Free Craft (item recipes), Always Sharp, More Damage, More HR Points (quest payout; story caps still stop rank)
 
 Cheats stay off if another human hunter is in the session.
 

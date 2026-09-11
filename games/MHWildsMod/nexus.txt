@@ -82,6 +82,11 @@ Launch the game, load in, press ~ (tilde).
       unchanged. Multiplier: 1x / 1.5x / 2x / 3x / 5x / 10x / 99x / 200x.
       Default 2x. Solo only.
 
+  More HR Points
+      Scales each quest's hunter-rank payout. Same multipliers as Damage.
+      Default 2x. Points bank through story caps; rank snaps forward when
+      a cap lifts. Does not lift story caps. Solo only.
+
 
 --------------------------------------------------------------------------------
   GAMEPLAY
@@ -94,6 +99,9 @@ Launch the game, load in, press ~ (tilde).
       Crits tick the bar when the hit lands, not after hitstop.
       Small monsters stay off unless you turn them on — packs
       will flood otherwise.
+      Show type is a live list of unique monsters on this map.
+      Pick one species (including a small like Piragill) to show
+      only that pack — no need to enable every small monster.
       Draw distance and bar scale are on this tab.
       Not a cheat. Works in a party. Optional hotkey on Settings.
 
@@ -166,6 +174,7 @@ Launch the game, load in, press ~ (tilde).
   - Health bars are overlay, not a cheat.
 
   - Move Fast is play speed. More Damage is hits on monsters only.
+    More HR Points is quest hunter-rank payout only; story caps still stop rank.
 
   - Toggles, hotkeys, and multipliers persist.
 
