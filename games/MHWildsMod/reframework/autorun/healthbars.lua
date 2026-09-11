@@ -1,5 +1,5 @@
--- Rise-style world bars. Discover via cEnemyContext.get_IsAngry
--- (the shipped path). HP: HealthManager.
+-- Rise-style world bars. Discover via EnemyManager._EnemyCharacterValidList
+-- (spawned characters only). HP: HealthManager.
 -- Crits sit in stock until hitstop ends (calcApplyDamage). Tick the bar
 -- from stockLocal / FinalDamage, same role as Rise stockDamage.
 
@@ -9,33 +9,37 @@ _G.MHHealthBars = HealthBars
 HealthBars.enabled = true
 HealthBars.paused = false
 HealthBars.show_zako = false
-HealthBars.max_draw_dist = 0
+HealthBars.max_draw_dist = 0 -- 0 = unlimited (menu "Off")
 HealthBars.show_hp_text = true
 HealthBars.show_dist = true
-HealthBars.scale = 1.5
+HealthBars.scale = 1.5 -- default matches OTHER_BASE (menu 1.5x)
+HealthBars.filter_em_id = 0 -- 0 = All types (not persisted)
+HealthBars.filter_name = nil
+HealthBars._type_options = { { 0, "All types" } }
 
-local STALE_S = 1.5
-local FLOAT_S = 1.2
-local SHOW_TAU = 0.055
-local SHOW_TAU_HEAVY = 0.085
-local CHIP_HOLD = 0.1
-local CHIP_TAU = 0.16
-local OTHER_BASE = 1.5
-local BOSS_BASE = 2.0
-local MAX_BAR_W = 260
-local WORLD_LIFT_BOSS = 3.1
-local WORLD_LIFT_ZAKO = 1.15
+local STALE_S = 4.0 -- drop row after this many seconds without a poll/hit
+local FLOAT_S = 1.2 -- damage-float lifetime (seconds)
+local SHOW_TAU = 0.055 -- shown-HP lerp time constant
+local SHOW_TAU_HEAVY = 0.085 -- slower lerp after a big hit
+local CHIP_HOLD = 0.1 -- seconds the lag-chip stays before catching up
+local CHIP_TAU = 0.16 -- chip catch-up time constant
+local OTHER_BASE = 1.5 -- small-monster bar scale at menu 1.0
+local BOSS_BASE = 2.0 -- boss bar scale at menu 1.0
+local MAX_BAR_W = 260 -- pixel width cap after scale
+local WORLD_LIFT_BOSS = 3.1 -- fallback world-Y lift when radius is missing
+local WORLD_LIFT_ZAKO = 1.15 -- fallback world-Y lift when radius is missing
 -- Native quest/status icons sit on MissionBeaconPos when they show.
 -- Drop the bar stack under that point so we do not cover them.
-local ICON_CLEAR_PX = 40
-local FONT_MIN = 14
+local ICON_CLEAR_PX = 40 -- pixels below crown / native icon slot
+local FONT_MIN = 14 -- clamp name/HP text after scale
 local FONT_MAX = 22
-local BASE_FONT = 16
-local CHAR_W = 7
-local MAX_BARS = 12
-local BOSS_TICKS = 10
+local BASE_FONT = 16 -- name/HP size at OTHER_BASE scale
+local CHAR_W = 7 -- fallback glyph width if imgui.calc_text_size fails
+local MAX_BARS = 20 -- draw budget after distance sort
+local BOSS_TICKS = 10 -- 10% HP marks on boss bars
 
-local COL_EMPTY = 0xE8000000
+-- Packed AARRGGBB (imgui / draw.*). Boss = blue, zako = gold.
+local COL_EMPTY = 0xE8000000 -- 91% black trough
 local COL_LINE = 0xFF141414
 local COL_NAME = 0xFFE8E8E8
 local COL_SHADOW = 0xFF000000
@@ -56,9 +60,13 @@ local scratch_vec = nil
 local installed = false
 local dmg_hooked = false
 local prev_now = nil
+local frame_dl    = nil      -- foreground draw-list cached once per on_frame
+local frame_count = 0
+local poll_gen = 0           -- bumped each successful EnemyManager poll
+local hunter_cache = { x = nil, y = nil, z = nil }
+local type_catalog = {}      -- em_id -> { em_id, name, boss, zako, count }
 
 local enemy_context_td = sdk.find_type_definition("app.cEnemyContext")
-local get_is_angry = enemy_context_td and enemy_context_td:get_method("get_IsAngry")
 local get_is_boss = enemy_context_td and enemy_context_td:get_method("get_IsBoss")
 local get_is_zako = enemy_context_td and enemy_context_td:get_method("get_IsZako")
 local get_is_animal = enemy_context_td and enemy_context_td:get_method("get_IsAnimal")
@@ -79,10 +87,20 @@ local holder_em = nil
 local calc_apply = nil
 local stock_local = nil
 local get_scaled_radius = nil
+local info_get_context = nil
+local info_get_chara = nil
+local info_get_browser = nil
+local info_get_pos = nil
+local get_game_object_pos = nil
+local get_mission_beacon = nil
+local get_looked_pos = nil
 
 if get_browser then
     local browser_td = get_browser:get_return_type()
     get_scaled_radius = browser_td and browser_td:get_method("get_ScaledModelRadius")
+    get_game_object_pos = browser_td and browser_td:get_method("get_GameObjectPos")
+    get_mission_beacon = browser_td and browser_td:get_method("get_MissionBeaconPos")
+    get_looked_pos = browser_td and browser_td:get_method("get_LookedPos")
     context_field = browser_td and browser_td:get_field("_Context")
     if context_field then
         local holder_td = context_field:get_type()
@@ -98,6 +116,26 @@ if get_browser then
             end
         end
     end
+end
+
+local mm_td = sdk.find_type_definition("app.MissionManager")
+local mm_unload = mm_td and mm_td:get_method("get_IsFixQuestFinish_UntilGameObjectUnload()")
+local mm_loading = mm_td and mm_td:get_method("get_IsGoToLoadingQuest()")
+local mm_retry_unload = mm_td and mm_td:get_method("get_IsMissionRetryToObjUnloaded()")
+local mm_join_fail = mm_td and mm_td:get_method("get_IsQuestJoinFailedLoading()")
+
+local info_td = sdk.find_type_definition("app.cEnemyManageInfo")
+if info_td then
+    info_get_context = info_td:get_method("get_Context()")
+    info_get_chara = info_td:get_method("get_Character()")
+    info_get_browser = info_td:get_method("get_Browser()")
+    info_get_pos = info_td:get_method("get_Pos()")
+end
+
+if not holder_em then
+    local holder_td = sdk.find_type_definition("app.cEnemyContextHolder")
+    holder_em = holder_td and holder_td:get_method("get_Em")
+    get_chara = get_chara or (holder_td and holder_td:get_method("get_Chara"))
 end
 
 if not get_health_manager then
@@ -232,7 +270,7 @@ local function user_mult()
     local s = HealthBars.scale
     if type(s) ~= "number" or s < OTHER_BASE then
         s = OTHER_BASE
-    elseif s > 2.5 then
+    elseif s > 2.5 then -- menu max (matches SCALE_OPTIONS top)
         s = 2.5
     end
     return s / OTHER_BASE
@@ -240,6 +278,7 @@ end
 
 local function bar_scale(is_boss)
     local s = (is_boss and BOSS_BASE or OTHER_BASE) * user_mult()
+    -- 110 = unscaled bar width in draw_bar; keep pixel width <= MAX_BAR_W
     local max_s = MAX_BAR_W / 110
     if s > max_s then
         s = max_s
@@ -266,6 +305,7 @@ local function row_style(is_boss)
 end
 
 local function pack_col(a, r, g, b)
+    -- AARRGGBB bit layout (A<<24 | B<<16 | G<<8 | R) — not tunables
     return a * 16777216 + b * 65536 + g * 256 + r
 end
 
@@ -285,13 +325,32 @@ local function shade(c, add)
         if v < 0 then
             return 0
         end
-        if v > 255 then
+        if v > 255 then -- 8-bit channel clamp
             return 255
         end
         return math.floor(v)
     end
     return pack_col(a, cl(r), cl(g), cl(b))
 end
+
+-- Pre-compute all bar gradient colours once at load time.
+-- shade() involves math.floor + modulo per channel; doing it per-frame per-bar was wasteful.
+-- shade() add: +70 chip, +38 highlight, -32 shadow, +58 top edge
+local COL_ZAKO_CHIP      = shade(COL_ZAKO_FILL, 70)
+local COL_ZAKO_FILL_HI   = shade(COL_ZAKO_FILL, 38)
+local COL_ZAKO_FILL_LO   = shade(COL_ZAKO_FILL, -32)
+local COL_ZAKO_FILL_EDGE = shade(COL_ZAKO_FILL, 58)
+local COL_ZAKO_CHIP_HI   = shade(COL_ZAKO_CHIP, 38)
+local COL_ZAKO_CHIP_LO   = shade(COL_ZAKO_CHIP, -32)
+local COL_ZAKO_CHIP_EDGE = shade(COL_ZAKO_CHIP, 58)
+
+local COL_BOSS_CHIP      = shade(COL_BOSS_FILL, 70)
+local COL_BOSS_FILL_HI   = shade(COL_BOSS_FILL, 38)
+local COL_BOSS_FILL_LO   = shade(COL_BOSS_FILL, -32)
+local COL_BOSS_FILL_EDGE = shade(COL_BOSS_FILL, 58)
+local COL_BOSS_CHIP_HI   = shade(COL_BOSS_CHIP, 38)
+local COL_BOSS_CHIP_LO   = shade(COL_BOSS_CHIP, -32)
+local COL_BOSS_CHIP_EDGE = shade(COL_BOSS_CHIP, 58)
 
 local function fg_dl()
     if not imgui or not imgui.get_foreground_draw_list then
@@ -305,31 +364,23 @@ local function fg_dl()
 end
 
 local function fill_rect(dl, x, y, w, h, col, round)
-    if w <= 0.5 or h <= 0.5 then
+    if w <= 0.5 or h <= 0.5 then -- skip sub-pixel slivers
         return
     end
     if dl and dl.add_rect_filled then
-        local ok = pcall(function()
-            dl:add_rect_filled({ x, y }, { x + w, y + h }, col, round or 0)
-        end)
-        if ok then
-            return
-        end
+        dl:add_rect_filled({ x, y }, { x + w, y + h }, col, round or 0)
+        return
     end
     draw.filled_rect(x, y, w, h, col)
 end
 
 local function stroke_rect(dl, x, y, w, h, col, round, thick)
-    if w <= 0.5 or h <= 0.5 then
+    if w <= 0.5 or h <= 0.5 then -- skip sub-pixel slivers
         return
     end
     if dl and dl.add_rect then
-        local ok = pcall(function()
-            dl:add_rect({ x, y }, { x + w, y + h }, col, round or 0, 0, thick or 1)
-        end)
-        if ok then
-            return
-        end
+        dl:add_rect({ x, y }, { x + w, y + h }, col, round or 0, 0, thick or 1)
+        return
     end
     draw.outline_rect(x, y, w, h, col)
 end
@@ -403,17 +454,17 @@ end
 
 local function radius_lift(browser, is_boss)
     local r = as_number(call(get_scaled_radius, browser))
-    if type(r) ~= "number" or r < 0.25 then
+    if type(r) ~= "number" or r < 0.25 then -- radius too small / missing
         return is_boss and WORLD_LIFT_BOSS or WORLD_LIFT_ZAKO
     end
-    local lift = r * 0.72
+    local lift = r * 0.72 -- model radius -> bar height above origin
     if is_boss then
-        if lift < 3.4 then
+        if lift < 3.4 then -- boss world-Y clamp
             lift = 3.4
         elseif lift > 6.2 then
             lift = 6.2
         end
-    elseif lift < 1.05 then
+    elseif lift < 1.05 then -- small-monster world-Y clamp
         lift = 1.05
     elseif lift > 2.2 then
         lift = 2.2
@@ -421,37 +472,81 @@ local function radius_lift(browser, is_boss)
     return lift
 end
 
--- Browser ModelCenter/GameObject is the root. MissionBeacon is the native
--- above-head slot (quest icons use it when they appear). LookedPos is the
--- camera lock point — often chest/head, still better than root+3.1.
+local function read_pos_method(obj, method)
+    if not method or not is_managed(obj) then
+        return nil
+    end
+    return vec3(call(method, obj))
+end
+
+-- Prefer cEnemyManageInfo.get_Pos (one stable call). Lock the first working
+-- source on the row so MissionBeacon appearing/disappearing cannot flip the
+-- stack between crown and root every frame.
 local function world_pos(row)
+    if row.lift == nil then
+        row.lift = radius_lift(row.browser, row.boss)
+    end
+    local lift = row.lift
+
+    local kind = row.pos_kind
+    if kind == "info" then
+        local x, y, z = read_pos_method(row.manage_info, info_get_pos)
+        if x then
+            row.crown = false
+            return x, y + lift, z
+        end
+        row.pos_kind = nil
+    elseif kind == "root" then
+        local x, y, z = read_pos_method(row.browser, get_game_object_pos)
+        if x then
+            row.crown = false
+            return x, y + lift, z
+        end
+        row.pos_kind = nil
+    elseif kind == "beacon" then
+        local x, y, z = read_pos_method(row.browser, get_mission_beacon)
+        if x then
+            row.crown = true
+            return x, y, z
+        end
+        -- Beacon is optional (quest icons). Fall back without re-probing.
+        row.pos_kind = nil
+    end
+
     local browser = row.browser
     if not is_managed(browser) then
         browser = call(get_browser, row.enemy_context)
+        if not is_managed(browser) and is_managed(row.manage_info) then
+            browser = call(info_get_browser, row.manage_info)
+        end
         row.browser = browser
+        row.lift = radius_lift(browser, row.boss)
+        lift = row.lift
     end
-    local gx, gy, gz = read_vec3(browser, {
-        "get_GameObjectPos",
-        "get_ModelCenterPos",
-    })
-    local bx, by, bz = read_vec3(browser, { "get_MissionBeaconPos" })
-    if bx and (gy == nil or by > gy + 0.35) then
-        row.crown = true
-        return bx, by, bz
+
+    local x, y, z = read_pos_method(row.manage_info, info_get_pos)
+    if x then
+        row.pos_kind = "info"
+        row.crown = false
+        return x, y + lift, z
     end
-    local lx, ly, lz = read_vec3(browser, { "get_LookedPos" })
-    if lx and gy and ly > gy + 0.35 then
-        row.crown = true
-        return lx, ly, lz
+    x, y, z = read_pos_method(browser, get_game_object_pos)
+    if x then
+        row.pos_kind = "root"
+        row.crown = false
+        return x, y + lift, z
     end
-    row.crown = false
-    if gx then
-        return gx, gy + radius_lift(browser, row.boss), gz
+    x, y, z = read_pos_method(browser, get_looked_pos)
+    if x then
+        row.pos_kind = "root"
+        row.crown = false
+        return x, y + lift, z
     end
     for _, obj in ipairs({ row.character, row.health_manager, row.enemy_context }) do
-        local x, y, z = trans_pos(obj)
+        x, y, z = trans_pos(obj)
         if x then
-            return x, y + radius_lift(browser, row.boss), z
+            row.crown = false
+            return x, y + lift, z
         end
     end
     return nil
@@ -550,13 +645,13 @@ local function apply_hp(row, hp, max_hp, now)
     if not hp or not max_hp or max_hp <= 0 then
         return
     end
-    if row.prev_health ~= nil and hp < row.prev_health - 0.5 then
+    if row.prev_health ~= nil and hp < row.prev_health - 0.5 then -- ignore sub-HP noise
         local floats = row.floats
         floats[#floats + 1] = {
             amount = row.prev_health - hp,
             born = now,
         }
-        if #floats > 8 then
+        if #floats > 8 then -- cap stacked damage numbers per row
             table.remove(floats, 1)
         end
         if row.chip == nil or row.chip < row.prev_health then
@@ -579,7 +674,7 @@ local function live_hp(row, hp)
     if row.pending_hp == nil then
         return hp
     end
-    if type(hp) == "number" and hp <= row.pending_hp + 0.5 then
+    if type(hp) == "number" and hp <= row.pending_hp + 0.5 then -- HealthManager caught the stock tick
         row.pending_hp = nil
         row.last_stock_dmg = nil
         return hp
@@ -597,17 +692,17 @@ local function tick_shown(row, dt)
         return
     end
     local delta = row.shown - target
-    if delta <= 0.35 then
+    if delta <= 0.35 then -- snap leftover HP instead of lingering
         row.shown = target
         return
     end
     local tau = SHOW_TAU
     local max_hp = row.max_health or 0
-    if max_hp > 0 and delta > max_hp * 0.2 then
+    if max_hp > 0 and delta > max_hp * 0.2 then -- 20%+ of max = heavy hit
         tau = SHOW_TAU_HEAVY
     end
     row.shown = row.shown + (target - row.shown) * (1 - math.exp(-dt / tau))
-    if row.shown - target < 0.35 then
+    if row.shown - target < 0.35 then -- snap leftover HP instead of lingering
         row.shown = target
     end
 end
@@ -629,13 +724,13 @@ local function tick_chip(row, now, dt)
     if row.chip_hold and now < row.chip_hold then
         return
     end
-    if row.chip - target <= 0.35 then
+    if row.chip - target <= 0.35 then -- snap leftover chip instead of lingering
         row.chip = target
         row.chip_hold = nil
         return
     end
     row.chip = row.chip + (target - row.chip) * (1 - math.exp(-dt / CHIP_TAU))
-    if row.chip - target < 0.35 then
+    if row.chip - target < 0.35 then -- snap leftover chip instead of lingering
         row.chip = target
         row.chip_hold = nil
     end
@@ -659,23 +754,112 @@ local function forget_row(row)
     end
 end
 
-local function want_enemy(enemy_context)
-    if call(get_is_boss, enemy_context) == true then
-        return true, true
+local function filter_id()
+    local id = HealthBars.filter_em_id
+    if type(id) == "number" and id ~= 0 then
+        return id
     end
-    if not HealthBars.show_zako then
-        return false, false
-    end
-    if call(get_is_animal, enemy_context) == true then
-        return false, false
-    end
-    if call(get_is_zako, enemy_context) == true then
-        return true, false
-    end
-    return false, false
+    return nil
 end
 
-local function on_update(enemy_context)
+local function want_enemy(enemy_context)
+    local em_id = as_number(call(get_em_id, enemy_context))
+    local want = filter_id()
+    if call(get_is_boss, enemy_context) == true then
+        if want and em_id ~= want then
+            return false, true, em_id
+        end
+        return true, true, em_id
+    end
+    if call(get_is_animal, enemy_context) == true then
+        if want and em_id == want then
+            return true, false, em_id
+        end
+        return false, false, em_id
+    end
+    if want then
+        return em_id == want, false, em_id
+    end
+    if not HealthBars.show_zako then
+        return false, false, em_id
+    end
+    if call(get_is_zako, enemy_context) == true then
+        return true, false, em_id
+    end
+    return false, false, em_id
+end
+
+local function note_type(enemy_context)
+    local em_id = as_number(call(get_em_id, enemy_context))
+    if em_id == nil then
+        return
+    end
+    local is_animal = call(get_is_animal, enemy_context) == true
+    if is_animal then
+        return
+    end
+    local slot = type_catalog[em_id]
+    if slot then
+        slot.count = slot.count + 1
+        return
+    end
+    local name = enemy_name(enemy_context)
+    if dummy_name(name) then
+        name = "Em " .. tostring(em_id)
+    end
+    type_catalog[em_id] = {
+        em_id = em_id,
+        name = name,
+        boss = call(get_is_boss, enemy_context) == true,
+        zako = call(get_is_zako, enemy_context) == true,
+        count = 1,
+    }
+end
+
+local function rebuild_type_options()
+    local items = { { 0, "All types" } }
+    local rows = {}
+    local seen = {}
+    for em_id, info in pairs(type_catalog) do
+        rows[#rows + 1] = info
+        seen[em_id] = true
+    end
+    local want = filter_id()
+    if want and not seen[want] then
+        rows[#rows + 1] = {
+            em_id = want,
+            name = HealthBars.filter_name or ("Em " .. tostring(want)),
+            missing = true,
+        }
+    end
+    table.sort(rows, function(a, b)
+        return (a.name or "") < (b.name or "")
+    end)
+    for _, info in ipairs(rows) do
+        local label = info.name or ("Em " .. tostring(info.em_id))
+        if info.missing then
+            label = label .. "  (not on map)"
+        elseif info.count then
+            label = string.format("%s  (%d)", label, info.count)
+        end
+        if info.zako then
+            label = label .. "  · small"
+        elseif info.boss then
+            label = label .. "  · boss"
+        end
+        items[#items + 1] = { info.em_id, label }
+        if want == info.em_id and not dummy_name(info.name) then
+            HealthBars.filter_name = info.name
+        end
+    end
+    HealthBars._type_options = items
+end
+
+function HealthBars.type_options()
+    return HealthBars._type_options or { { 0, "All types" } }
+end
+
+local function on_update(enemy_context, now, manage_info)
     if not HealthBars.enabled or HealthBars.paused then
         return
     end
@@ -686,8 +870,9 @@ local function on_update(enemy_context)
     if not addr then
         return
     end
+    now = now or os.clock()
 
-    local keep, is_boss = want_enemy(enemy_context)
+    local keep, is_boss, em_id = want_enemy(enemy_context)
     if not keep then
         return
     end
@@ -696,8 +881,19 @@ local function on_update(enemy_context)
     local character = row and row.character
     local health_manager = row and row.health_manager
     local browser = row and row.browser
+    if is_managed(manage_info) then
+        if not is_managed(character) then
+            character = call(info_get_chara, manage_info)
+        end
+        if not is_managed(browser) then
+            browser = call(info_get_browser, manage_info)
+        end
+    end
     if not is_managed(health_manager) or not is_managed(browser) then
-        character, health_manager, browser = resolve_health_manager(enemy_context)
+        local c2, h2, b2 = resolve_health_manager(enemy_context)
+        character = character or c2
+        health_manager = health_manager or h2
+        browser = browser or b2
         if not is_managed(health_manager) then
             return
         end
@@ -705,7 +901,6 @@ local function on_update(enemy_context)
 
     local hp = as_number(call(get_health, health_manager))
     local max_hp = as_number(call(get_max_health, health_manager))
-    local now = os.clock()
     if row == nil then
         if not hp or hp <= 0 or not max_hp or max_hp <= 0 then
             return
@@ -720,6 +915,8 @@ local function on_update(enemy_context)
             character = character,
             health_manager = health_manager,
             browser = browser,
+            manage_info = manage_info,
+            em_id = em_id,
             boss = is_boss,
             health = 0,
             max_health = 0,
@@ -732,6 +929,7 @@ local function on_update(enemy_context)
             last_stock_dmg = nil,
             hit_at = nil,
             seen = now,
+            poll_gen = poll_gen,
         }
         tracked[addr] = row
     else
@@ -739,12 +937,85 @@ local function on_update(enemy_context)
         row.character = character
         row.health_manager = health_manager
         row.browser = browser
+        if is_managed(manage_info) then
+            row.manage_info = manage_info
+        end
         row.boss = is_boss
+        row.em_id = em_id or row.em_id
         row.seen = now
+        row.poll_gen = poll_gen
     end
     remember_chara(row, character)
     apply_hp(row, live_hp(row, hp), max_hp, now)
-    refresh_row_pos(row)
+end
+
+local function array_at(arr, i)
+    if not arr then
+        return nil
+    end
+    local ok, item = pcall(function()
+        return arr:get_element(i)
+    end)
+    if ok and item ~= nil then
+        return item
+    end
+    ok, item = pcall(function()
+        return arr[i]
+    end)
+    if ok then
+        return item
+    end
+    return nil
+end
+
+-- One walk of spawned enemies per frame. This is the heartbeat — not get_IsAngry,
+-- which the AI only calls on think ticks and was dropping bars as "stale".
+local function poll_valid_enemies(now)
+    local em
+    pcall(function()
+        em = sdk.get_managed_singleton("app.EnemyManager")
+    end)
+    if not is_managed(em) then
+        return false
+    end
+    local dyn
+    pcall(function()
+        dyn = em:get_field("_EnemyCharacterValidList")
+    end)
+    if not is_managed(dyn) then
+        return false
+    end
+    local n, arr
+    pcall(function()
+        n = dyn:get_field("_Count")
+        arr = dyn:get_field("_Array")
+    end)
+    if type(n) ~= "number" or arr == nil then
+        return true
+    end
+    poll_gen = poll_gen + 1
+    type_catalog = {}
+    if n <= 0 then
+        rebuild_type_options()
+        return true
+    end
+    -- Live quests have hit ~84 valid entries; cap so a huge array cannot stall a frame.
+    if n > 128 then
+        n = 128
+    end
+    for i = 0, n - 1 do
+        local info = array_at(arr, i)
+        if is_managed(info) then
+            local holder = call(info_get_context, info)
+            local ctx = call(holder_em, holder)
+            if is_managed(ctx) then
+                note_type(ctx)
+                on_update(ctx, now, info)
+            end
+        end
+    end
+    rebuild_type_options()
+    return true
 end
 
 local function clamp01(v)
@@ -757,21 +1028,24 @@ local function clamp01(v)
     return v
 end
 
-local function draw_fill_grad(dl, x, y, w, h, col, round)
-    if w <= 0.5 or h <= 0.5 then
+-- c_hi/c_mid/c_lo/c_edge are pre-computed at load time; no shade() calls per draw.
+local function draw_fill_grad(dl, x, y, w, h, c_hi, c_mid, c_lo, c_edge, round)
+    if w <= 0.5 or h <= 0.5 then -- skip sub-pixel slivers
         return
     end
-    local band = h / 3
-    fill_rect(dl, x, y, w, band + 0.5, shade(col, 38), round)
-    fill_rect(dl, x, y + band, w, band + 0.5, col, 0)
-    fill_rect(dl, x, y + band * 2, w, h - band * 2, shade(col, -32), 0)
-    local hi = math.max(1.2, h * 0.18)
-    fill_rect(dl, x, y, w, hi, shade(col, 58), round)
+    local band = h / 3 -- three-stop vertical gradient
+    fill_rect(dl, x, y, w, band + 0.5, c_hi, round) -- +0.5 covers the seam
+    fill_rect(dl, x, y + band, w, band + 0.5, c_mid, 0)
+    fill_rect(dl, x, y + band * 2, w, h - band * 2, c_lo, 0)
+    local hi = math.max(1.2, h * 0.18) -- top-edge highlight (px floor / 18% of height)
+    fill_rect(dl, x, y, w, hi, c_edge, round)
 end
 
-local function draw_bar(sx, sy, pct, chip_pct, s, fill_col, rim_col, is_boss)
-    local bar_w = 110 * s
-    local bar_h = 12 * s
+-- fill_col / rim_col removed — derived from is_boss via pre-computed constants.
+-- Uses frame_dl (cached once per on_frame) instead of calling fg_dl() per bar.
+local function draw_bar(sx, sy, pct, chip_pct, s, is_boss)
+    local bar_w = 110 * s -- unscaled width; bar_scale uses the same 110
+    local bar_h = 12 * s -- unscaled height
     local x = sx - bar_w * 0.5
     local y = sy
     pct = clamp01(pct)
@@ -779,29 +1053,40 @@ local function draw_bar(sx, sy, pct, chip_pct, s, fill_col, rim_col, is_boss)
     if chip_pct < pct then
         chip_pct = pct
     end
+    -- corner radius: bosses slightly rounder than smalls
     local round = is_boss and 3.5 * s / OTHER_BASE or 2.4 * s / OTHER_BASE
-    local dl = fg_dl()
+    local dl = frame_dl
+    local rim_col, fhi, fmid, flo, fedge, chi, cmid, clo, cedge
+    if is_boss then
+        rim_col = COL_BOSS_RIM
+        fhi, fmid, flo, fedge = COL_BOSS_FILL_HI, COL_BOSS_FILL, COL_BOSS_FILL_LO, COL_BOSS_FILL_EDGE
+        chi, cmid, clo, cedge = COL_BOSS_CHIP_HI, COL_BOSS_CHIP, COL_BOSS_CHIP_LO, COL_BOSS_CHIP_EDGE
+    else
+        rim_col = COL_ZAKO_RIM
+        fhi, fmid, flo, fedge = COL_ZAKO_FILL_HI, COL_ZAKO_FILL, COL_ZAKO_FILL_LO, COL_ZAKO_FILL_EDGE
+        chi, cmid, clo, cedge = COL_ZAKO_CHIP_HI, COL_ZAKO_CHIP, COL_ZAKO_CHIP_LO, COL_ZAKO_CHIP_EDGE
+    end
     fill_rect(dl, x, y, bar_w, bar_h, COL_EMPTY, round)
     local chip_w = bar_w * chip_pct
-    if chip_w > pct * bar_w + 0.5 then
-        draw_fill_grad(dl, x, y, chip_w, bar_h, shade(fill_col, 70), round)
+    if chip_w > pct * bar_w + 0.5 then -- only draw chip if it peeks past fill
+        draw_fill_grad(dl, x, y, chip_w, bar_h, chi, cmid, clo, cedge, round)
     end
     local fill = bar_w * pct
-    if fill > 0.5 then
-        draw_fill_grad(dl, x, y, fill, bar_h, fill_col, round)
+    if fill > 0.5 then -- skip sub-pixel fill
+        draw_fill_grad(dl, x, y, fill, bar_h, fhi, fmid, flo, fedge, round)
     end
     if is_boss then
         for i = 1, BOSS_TICKS - 1 do
             local tx = x + bar_w * (i / BOSS_TICKS)
-            fill_rect(dl, tx, y + 1, 1, bar_h - 2, 0x66101010, 0)
+            fill_rect(dl, tx, y + 1, 1, bar_h - 2, 0x66101010, 0) -- 40% black tick
         end
-        local cap = math.max(2, 2.2 * s / OTHER_BASE)
+        local cap = math.max(2, 2.2 * s / OTHER_BASE) -- boss corner squares (px floor)
         fill_rect(dl, x, y, cap, cap, COL_BOSS_RIM, 0)
         fill_rect(dl, x + bar_w - cap, y, cap, cap, COL_BOSS_RIM, 0)
         fill_rect(dl, x, y + bar_h - cap, cap, cap, COL_BOSS_RIM, 0)
         fill_rect(dl, x + bar_w - cap, y + bar_h - cap, cap, cap, COL_BOSS_RIM, 0)
     end
-    stroke_rect(dl, x, y, bar_w, bar_h, COL_FRAME, round, 2)
+    stroke_rect(dl, x, y, bar_w, bar_h, COL_FRAME, round, 2) -- outer 2px frame
     stroke_rect(dl, x + 1, y + 1, bar_w - 2, bar_h - 2, rim_col, round, 1)
     stroke_rect(dl, x, y, bar_w, bar_h, COL_LINE, round, 1)
 end
@@ -823,10 +1108,10 @@ local function draw_centered(text, cx, cy, color, px)
     end
     local w = measure_text(text, px)
     local x = cx - w * 0.5
-    local dl = fg_dl()
+    local dl = frame_dl  -- already cached for this frame; no repeated pcall
     if dl and dl.add_text then
         pcall(function()
-            dl:add_text({ x + 1, cy + 1 }, COL_SHADOW, text)
+            dl:add_text({ x + 1, cy + 1 }, COL_SHADOW, text) -- 1px drop shadow
             dl:add_text({ x, cy }, color, text)
         end)
     else
@@ -851,15 +1136,15 @@ local function draw_row(row, now, hx, hy, hz)
     end
     local s = bar_scale(row.boss)
     local px = font_px(s)
-    local fill_col, text_col, float_col, rim_col = row_style(row.boss)
-    local bar_h = 12 * s
+    local _, text_col, float_col = row_style(row.boss)  -- fill/rim now derived inside draw_bar
+    local bar_h = 12 * s -- same unscaled height as draw_bar
     -- Crown = MissionBeacon / LookedPos (native icon slot). Name goes
     -- under that point so conditional icons stay clear. Fallback already
     -- has world lift baked in; keep the old name-above-bar stack.
     if row.crown then
-        sy = sy + ICON_CLEAR_PX + px + 4
+        sy = sy + ICON_CLEAR_PX + px + 4 -- 4px gap under name
     else
-        sy = sy - (px + 6)
+        sy = sy - (px + 6) -- 6px gap above bar when there is no crown
     end
 
     local shown = row.shown or row.health
@@ -872,17 +1157,17 @@ local function draw_row(row, now, hx, hy, hz)
             pct = shown / row.max_health
             chip_pct = chip / row.max_health
         end
-        draw_bar(sx, sy, pct, chip_pct, s, fill_col, rim_col, row.boss)
+        draw_bar(sx, sy, pct, chip_pct, s, row.boss)
         local label = row.name
         if HealthBars.show_dist and meters then
             label = string.format("%s  %.0fm", row.name, meters)
         end
-        draw_centered(label, sx, sy - px - 4, COL_NAME, px)
+        draw_centered(label, sx, sy - px - 4, COL_NAME, px) -- 4px above bar
         if HealthBars.show_hp_text then
             draw_centered(
                 string.format("%.0f/%.0f", shown, row.max_health),
                 sx,
-                sy + bar_h + 3,
+                sy + bar_h + 3, -- 3px under the bar
                 text_col,
                 px
             )
@@ -894,7 +1179,7 @@ local function draw_row(row, now, hx, hy, hz)
         local age = now - flt.born
         if age < FLOAT_S then
             local rise = age / FLOAT_S
-            local fy = sy - px - 14 - rise * (28 * s)
+            local fy = sy - px - 14 - rise * (28 * s) -- start 14px up; rise 28px * scale
             draw_centered(string.format("-%.0f", flt.amount), sx, fy, float_col, px)
             keep[#keep + 1] = flt
         end
@@ -923,7 +1208,7 @@ local function calc_final_damage(calc)
     pcall(function()
         dmg = calc:get_field("FinalDamage")
     end)
-    if type(dmg) == "number" and dmg >= 0.5 then
+    if type(dmg) == "number" and dmg >= 0.5 then -- ignore dust-speck ticks
         return dmg
     end
     local phys, elem = 0, 0
@@ -934,13 +1219,45 @@ local function calc_final_damage(calc)
     return (tonumber(phys) or 0) + (tonumber(elem) or 0)
 end
 
+-- Only real teardown / travel. IsStartGoQuestLoading stays true for the
+-- entire quest and wiped every bar. Do not use it here.
+local function scene_busy()
+    local mm
+    pcall(function()
+        mm = sdk.get_managed_singleton("app.MissionManager")
+    end)
+    if not is_managed(mm) then
+        return false
+    end
+    return call(mm_unload, mm) == true
+        or call(mm_loading, mm) == true
+        or call(mm_retry_unload, mm) == true
+        or call(mm_join_fail, mm) == true
+end
+
+local function wipe_tracked()
+    if next(tracked) == nil then
+        return
+    end
+    for _, row in pairs(tracked) do
+        forget_row(row)
+    end
+    tracked = {}
+    by_chara = {}
+    type_catalog = {}
+    rebuild_type_options()
+end
+
 -- from_stock: tick at stock time (crit / hitstop). Apply-time must not
 -- subtract again — pending_hp holds until HealthManager catches up.
 local function note_hit(stock, dmg, from_stock)
     if not HealthBars.enabled or HealthBars.paused then
         return
     end
-    if type(dmg) ~= "number" or dmg < 0.5 then
+    if scene_busy() then
+        return
+    end
+    if type(dmg) ~= "number" or dmg < 0.5 then -- ignore dust-speck ticks
         return
     end
     local row, character = row_from_stock(stock)
@@ -949,8 +1266,8 @@ local function note_hit(stock, dmg, from_stock)
     end
     local now = os.clock()
     if row.last_stock_dmg
-        and math.abs(row.last_stock_dmg - dmg) < 0.5
-        and (now - (row.hit_at or 0)) < 0.12
+        and math.abs(row.last_stock_dmg - dmg) < 0.5 -- same hit, stock + apply
+        and (now - (row.hit_at or 0)) < 0.12 -- 120ms debounce
     then
         return
     end
@@ -1037,32 +1354,30 @@ local function on_frame()
     if not HealthBars.enabled then
         return
     end
-    if HealthBars.paused then
-        if next(tracked) ~= nil then
-            for _, row in pairs(tracked) do
-                forget_row(row)
-            end
-            tracked = {}
-            by_chara = {}
-        end
+    if HealthBars.paused or scene_busy() then
+        wipe_tracked()
         prev_now = nil
         return
     end
 
     local now = os.clock()
-    local dt = 1 / 60
+    local dt = 1 / 60 -- first-frame fallback (~60 fps)
     if prev_now then
         dt = now - prev_now
-        if dt < 0.001 then
+        if dt < 0.001 then -- clamp so exp() lerp cannot explode
             dt = 0.001
-        elseif dt > 0.1 then
+        elseif dt > 0.1 then -- hitch / pause: do not jump a tenth of a second
             dt = 0.1
         end
     end
     prev_now = now
 
+    frame_count = frame_count + 1
+    local polled = poll_valid_enemies(now)
+
     local cx, cy, cz = camera_pos()
     local hx, hy, hz = hunter_pos()
+    hunter_cache.x, hunter_cache.y, hunter_cache.z = hx, hy, hz
     if hx == nil then
         hx, hy, hz = cx, cy, cz
     end
@@ -1080,11 +1395,14 @@ local function on_frame()
         end
         local ready = row.max_health and row.max_health > 0
         local stale = (now - (row.seen or 0)) > STALE_S
+        local missing = polled and row.poll_gen ~= poll_gen
         local dead = ready and row.health <= 0
-        local hide_zako = (not row.boss) and (not HealthBars.show_zako)
-        if hide_zako and not live_float then
+        local want = filter_id()
+        local hide_filter = want ~= nil and row.em_id ~= want
+        local hide_zako = (not row.boss) and (not HealthBars.show_zako) and not (want ~= nil and row.em_id == want)
+        if (hide_zako or hide_filter) and not live_float then
             drop[#drop + 1] = addr
-        elseif (stale or dead) and not live_float then
+        elseif (missing or stale or dead) and not live_float then
             drop[#drop + 1] = addr
         elseif ready and row.health > 0 and not hide_zako then
             tick_shown(row, dt)
@@ -1111,16 +1429,26 @@ local function on_frame()
         if a.boss ~= b.boss then
             return a.boss
         end
-        return (a._dist or 0) < (b._dist or 0)
+        local da, db = a._dist or 0, b._dist or 0
+        if da ~= db then
+            return da < db
+        end
+        return (a.name or "") < (b.name or "")
     end)
 
     local n = #ranked
     if n > MAX_BARS then
         n = MAX_BARS
     end
+    -- Fetch the draw-list here, just before we actually draw.
+    -- Calling fg_dl() at the top of on_frame (before the imgui render phase)
+    -- can return nil on some frames, causing every bar to fall back to the
+    -- slower draw.* API and flicker on that frame.
+    frame_dl = fg_dl()
     for i = 1, n do
         pcall(draw_row, ranked[i], now, hx, hy, hz)
     end
+    frame_dl = nil  -- drop reference; don't hold a stale imgui handle across frames
 end
 
 function HealthBars.kick()
@@ -1132,14 +1460,6 @@ function HealthBars.install()
         return
     end
     installed = true
-    if get_is_angry then
-        sdk.hook(get_is_angry, function(args)
-            local ctx = sdk.to_managed_object(args[2])
-            pcall(on_update, ctx)
-        end, function(retval)
-            return retval
-        end)
-    end
     pcall(install_dmg_hooks)
     re.on_frame(function()
         pcall(on_frame)

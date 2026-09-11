@@ -75,6 +75,8 @@ local features = {
     always_sharp = false,
     more_damage = false,
     more_damage_mult = 2.0,
+    more_hr = false,
+    more_hr_mult = 2.0,
     move_fast = false,
     move_fast_mult = 2.0,
     move_fast_vk = 0,
@@ -135,6 +137,7 @@ local runtime = {
     },
     hb_key_down = false,
     hb_vk = nil,
+    health_bars_filter = 0,
 }
 
 local function log_action(text)
@@ -1341,6 +1344,180 @@ else
     log.error("[mhwilds] cEnemyStockDamage.calcApplyDamage not found")
 end
 
+-- Quest HR payout. The rewards screen (GUI070001) does not call
+-- QuestData.get_HRPoint — setRewardAutoParams writes TYPE_004 into
+-- cQuestResultParams, setupGauge fills the bar from that, and
+-- cBasicParam.addHunterPoint grants it. Story caps still apply.
+local HR_RESULT_TYPE = 5 -- QuestResultDef.PARAM_TYPE.TYPE_004
+local HR_GRANT_MAX = 10000000
+local hr_scaled_grant = nil
+
+local function hr_scale()
+    if not runtime.cheats_enabled or not features.more_hr then
+        return 1.0
+    end
+    local n = as_float(features.more_hr_mult)
+    if n <= 0 then
+        return 1.0
+    end
+    return n
+end
+
+local function arg_i32(args, index)
+    local n
+    pcall(function()
+        n = sdk.to_int64(args[index])
+    end)
+    if type(n) ~= "number" then
+        return nil
+    end
+    return n
+end
+
+local function scale_hr_arg(args, index, scale)
+    local n = arg_i32(args, index)
+    if n == nil or n <= 0 or n >= HR_GRANT_MAX then
+        return nil
+    end
+    local scaled = math.floor(n * scale)
+    args[index] = sdk.to_ptr(scaled)
+    return scaled
+end
+
+do
+    local qd_td = sdk.find_type_definition("app.user_data.QuestData")
+    local get_hr_point = qd_td and (
+        qd_td:get_method("get_HRPoint()")
+        or qd_td:get_method("get_HRPoint")
+    )
+    if get_hr_point then
+        sdk.hook(get_hr_point, function()
+        end, function(retval)
+            local scale = hr_scale()
+            if scale == 1.0 then
+                return retval
+            end
+            local n = sdk.to_int64(retval)
+            if type(n) ~= "number" or n <= 0 then
+                return retval
+            end
+            return sdk.to_ptr(math.floor(n * scale))
+        end)
+        log.info("[mhwilds] hooked QuestData.get_HRPoint")
+    else
+        log.error("[mhwilds] QuestData.get_HRPoint missing")
+    end
+
+    -- Add(PARAM_TYPE, amount, extra) / set(...). Instance: args[3]=type, args[4]=amount.
+    local function hook_hr_result_write(method, label)
+        if not method then
+            return false
+        end
+        sdk.hook(method, function(args)
+            local scale = hr_scale()
+            if scale == 1.0 then
+                return
+            end
+            local typ = arg_i32(args, 3)
+            if typ ~= HR_RESULT_TYPE then
+                return
+            end
+            local scaled = scale_hr_arg(args, 4, scale)
+            if scaled then
+                hr_scaled_grant = scaled
+            end
+        end, function(retval)
+            return retval
+        end)
+        log.info("[mhwilds] hooked " .. label)
+        return true
+    end
+
+    local rp_td = sdk.find_type_definition("app.cQuestResultParams")
+    if not hook_hr_result_write(
+        rp_td and rp_td:get_method("Add(app.QuestResultDef.PARAM_TYPE, System.Int32, System.Int32)"),
+        "cQuestResultParams.Add"
+    ) then
+        log.error("[mhwilds] cQuestResultParams.Add missing")
+    end
+
+    local cp_td = sdk.find_type_definition("app.cQuestResultParams.cParam")
+    hook_hr_result_write(
+        cp_td and cp_td:get_method("set(app.QuestResultDef.PARAM_TYPE, System.Int32, System.Int32)"),
+        "cQuestResultParams.cParam.set"
+    )
+
+    -- Bar fill on GUI070001. Skip if Add already scaled TYPE_004 so the
+    -- gauge does not apply the multiplier twice.
+    local item_td = sdk.find_type_definition("app.cGUIPartsQuestResultItem")
+    local setup_gauge = item_td and item_td:get_method("setupGauge")
+    if setup_gauge then
+        sdk.hook(setup_gauge, function(args)
+            local scale = hr_scale()
+            if scale == 1.0 or hr_scaled_grant ~= nil then
+                return
+            end
+            local item = sdk.to_managed_object(args[2])
+            local typ
+            if item then
+                pcall(function()
+                    typ = item:call("getType")
+                end)
+            end
+            if typ ~= HR_RESULT_TYPE then
+                return
+            end
+            local old_point = arg_i32(args, 5)
+            local target = arg_i32(args, 7)
+            if old_point == nil or target == nil or target <= old_point then
+                return
+            end
+            args[7] = sdk.to_ptr(old_point + math.floor((target - old_point) * scale))
+        end, function(retval)
+            return retval
+        end)
+        log.info("[mhwilds] hooked cGUIPartsQuestResultItem.setupGauge")
+    else
+        log.error("[mhwilds] cGUIPartsQuestResultItem.setupGauge missing")
+    end
+
+    local function hook_add_hunter_point(type_name, indexes)
+        local td = sdk.find_type_definition(type_name)
+        local method = td and (
+            td:get_method("addHunterPoint(System.Int32)")
+            or td:get_method("addHunterPoint")
+        )
+        if not method then
+            log.error("[mhwilds] " .. type_name .. ".addHunterPoint missing")
+            return
+        end
+        sdk.hook(method, function(args)
+            local scale = hr_scale()
+            if scale == 1.0 then
+                return
+            end
+            for i = 1, #indexes do
+                local n = arg_i32(args, indexes[i])
+                if n ~= nil and n > 0 and n < HR_GRANT_MAX then
+                    if hr_scaled_grant ~= nil and n == hr_scaled_grant then
+                        hr_scaled_grant = nil
+                        return
+                    end
+                    args[indexes[i]] = sdk.to_ptr(math.floor(n * scale))
+                    return
+                end
+            end
+        end, function(retval)
+            return retval
+        end)
+        log.info("[mhwilds] hooked " .. type_name .. ".addHunterPoint")
+    end
+
+    -- Quest result calls the save instance, not the static util.
+    hook_add_hunter_point("app.savedata.cBasicParam", { 3, 2 })
+    hook_add_hunter_point("app.BasicParamUtil", { 2, 3 })
+end
+
 -- Wallet is via.rds.Mandrake on cBasicParam — use addMoney / getMoney, never the field.
 local function get_basic_param()
     local sdm = sdk.get_managed_singleton("app.SaveDataManager")
@@ -1572,6 +1749,35 @@ menu.extra_keybinds = function(ui)
     ui.bind_hotkey("Move Fast", features, "move_fast_vk")
     ui.muted("Health Bars and Move Fast are optional. Leave None and use the Gameplay toggles. Function keys are used by the game.")
 end
+-- RefShell auto-toggles persist booleans that have a matching *_vk.
+-- These two have custom pollers (solo gate, HealthBars sync, toasts).
+-- Wrap on the instance so this works even if the bundled RefShell
+-- does not have skip_auto_bind.
+do
+    local persist = features
+    local skip = { move_fast = true, health_bars = true }
+    local orig = menu.poll_toggle_table
+    function menu:poll_toggle_table(tbl)
+        if tbl == persist then
+            local labels = self._toggle_labels and self._toggle_labels[tbl]
+            for k, v in pairs(tbl) do
+                if type(v) == "boolean" and k ~= "open" and not skip[k] then
+                    local vk = tbl[k .. "_vk"]
+                    if self:key_edge(vk) then
+                        tbl[k] = not tbl[k]
+                        self.dirty = true
+                        local name = labels and labels[k] or k
+                        self:toast((tbl[k] and "On: " or "Off: ") .. name, "info", 1400)
+                    end
+                end
+            end
+            return
+        end
+        if orig then
+            return orig(self, tbl)
+        end
+    end
+end
 
 menu:add_tab("Hunter", function(ui)
     local party = runtime.party
@@ -1607,6 +1813,11 @@ menu:add_tab("Hunter", function(ui)
         else
             ui.kv("Damage", "off")
         end
+        if runtime.cheats_enabled and features.more_hr then
+            ui.kv("HR Points", string.format("%.1fx", as_float(features.more_hr_mult)))
+        else
+            ui.kv("HR Points", "off")
+        end
         if runtime.cheats_enabled and features.move_fast then
             ui.kv("Play Speed", string.format("%.1fx", as_float(features.move_fast_mult)))
         else
@@ -1630,8 +1841,10 @@ menu:add_tab("Hunter", function(ui)
         ui.bind_toggle("Always Sharp", features, "always_sharp")
         ui.bind_toggle("More Damage", features, "more_damage")
         ui.bind_combo("Damage", features, "more_damage_mult", DAMAGE_OPTIONS)
+        ui.bind_toggle("More HR Points", features, "more_hr")
+        ui.bind_combo("HR Points", features, "more_hr_mult", DAMAGE_OPTIONS)
         if party.enabled then
-            ui.muted("No damage, stamina use, or sharpness loss while on. More Damage scales hits on monsters.")
+            ui.muted("No damage, stamina use, or sharpness loss while on. More Damage scales hits on monsters. More HR Points scales each quest's hunter-rank payout; story caps still stop rank.")
         else
             ui.muted("Solo only. The toggles are ignored while others are in the party.")
         end
@@ -1676,6 +1889,12 @@ menu:add_tab("Gameplay", function(ui)
         ui.bind_toggle("Show distance", features, "health_bars_show_dist")
         ui.bind_toggle("Small monsters", features, "health_bars_zako")
         ui.muted("Bosses always. Small monsters stay off unless you turn them on — packs will flood otherwise.")
+        local type_opts = { { 0, "All types" } }
+        if HealthBars and HealthBars.type_options then
+            type_opts = HealthBars.type_options()
+        end
+        ui.bind_combo("Show type", runtime, "health_bars_filter", type_opts)
+        ui.muted("Live list of unique monsters on this map. Pick Piragill (or any small) to show only that pack — no need to enable every small monster.")
         ui.bind_combo("Draw distance", features, "health_bars_dist", DIST_OPTIONS)
         ui.bind_combo("Bar scale", features, "health_bars_scale", SCALE_OPTIONS)
         ui.muted("Bosses 2x red. Small monsters 1x teal. Scale multiplies both. Draw distance is the combo above.")
@@ -1835,6 +2054,12 @@ re.on_frame(function()
             HealthBars.kick()
         end
         HealthBars.show_zako = features.health_bars_zako and true or false
+        local filt = runtime.health_bars_filter
+        if type(filt) ~= "number" then
+            filt = 0
+            runtime.health_bars_filter = 0
+        end
+        HealthBars.filter_em_id = filt
         local dist = features.health_bars_dist
         if type(dist) == "number" then
             HealthBars.max_draw_dist = dist
@@ -1882,6 +2107,13 @@ re.on_script_reset(function()
 end)
 
 menu:bind()
+
+-- Type filter is session-only. Drop any leftover saved species so
+-- health bars always start on All types.
+if menu.config and menu.config.has and menu.config:has("health_bars_filter") then
+    menu.config:Set("health_bars_filter", nil)
+    menu.dirty = true
+end
 
 -- Old F6/F7/F8 defaults fight Wilds bindings. Move menu to ~ and
 -- unbind the optional overlay / speed keys so they stay menu-only.

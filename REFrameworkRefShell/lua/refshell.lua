@@ -801,13 +801,23 @@ function RefShell.create(opts)
         return edge
     end
 
+    function menu:skip_auto_bind(tbl, key)
+        self._skip_auto_bind = self._skip_auto_bind or {}
+        self._skip_auto_bind[tbl] = self._skip_auto_bind[tbl] or {}
+        if type(key) == "string" then
+            self._skip_auto_bind[tbl][key] = true
+        end
+        return self
+    end
+
     function menu:poll_toggle_table(tbl)
         if not tbl then
             return
         end
         local labels = self._toggle_labels and self._toggle_labels[tbl]
+        local skip = self._skip_auto_bind and self._skip_auto_bind[tbl]
         for k, v in pairs(tbl) do
-            if type(v) == "boolean" and k ~= "open" then
+            if type(v) == "boolean" and k ~= "open" and not (skip and skip[k]) then
                 local vk = tbl[k .. "_vk"]
                 if self:key_edge(vk) then
                     tbl[k] = not tbl[k]
